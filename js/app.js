@@ -5,6 +5,16 @@ var App = {
   actions: {},
   vue: 'dashboard',
 
+  // Déduite de l'adresse du script plutôt que recopiée à la main : un numéro
+  // de version de plus à tenir à jour serait un numéro de plus à oublier.
+  version: (function () {
+    var s = document.querySelector('script[src*="app.js"]');
+    var m = s && /\?v=(\d+)/.exec(s.src);
+    return m ? m[1] : '?';
+  })(),
+
+  sw: { supporte: false, enregistre: false, actif: false },
+
   onglets: [
     { id: 'dashboard', icone: '◆', label: 'Tableau de bord', court: 'Bord', objet: 'VueDashboard' },
     { id: 'temps', icone: '⏱', label: 'Temps', objet: 'VueTemps' },
@@ -196,6 +206,30 @@ var App = {
     } else { repli(); }
   },
 
+  // Demande au navigateur de revérifier le service worker. Sans ça, il ne le
+  // fait que de temps en temps, et une correction urgente pourrait attendre.
+  chercherMiseAJour: async function () {
+    this.message('Recherche…', 'ok');
+    try {
+      // Le service worker peut être absent — navigateur qui le refuse, page
+      // ouverte en fichier local. La comparaison de version, elle, marche
+      // partout : c'est elle qui répond à la question posée.
+      if (this.reg) { try { await this.reg.update(); } catch (e) { /* sans conséquence */ } }
+      // index.html est servi réseau d'abord : si le numéro de version a changé,
+      // c'est qu'une nouvelle livraison est en ligne.
+      var html = await fetch('index.html', { cache: 'no-store' }).then(function (r) { return r.text(); });
+      var m = /js\/app\.js\?v=(\d+)/.exec(html);
+      if (m && m[1] !== this.version) {
+        this.message('Version ' + m[1] + ' disponible — rechargement…', 'ok');
+        setTimeout(function () { location.reload(); }, 900);
+      } else {
+        this.message('Tu es déjà à la dernière version (' + this.version + ').', 'ok');
+      }
+    } catch (e) {
+      this.message('Vérification impossible : ' + e.message, 'erreur');
+    }
+  },
+
   message: function (txt, type) {
     var t = document.getElementById('toast');
     t.textContent = txt;
@@ -210,7 +244,23 @@ document.addEventListener('DOMContentLoaded', function () {
   // manque, le fonctionnement hors ligne doit rester acquis. Absent en file://,
   // ce qui est normal.
   if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
-    navigator.serviceWorker.register('sw.js').catch(function (e) {
+    App.sw.supporte = true;
+
+    // Une nouvelle version prend la main : on recharge une fois pour que la
+    // page cesse d'exécuter l'ancien code avec les nouveaux fichiers.
+    // La garde évite de recharger à la toute première installation, où il n'y
+    // avait pas encore de contrôleur — et évite surtout la boucle infinie.
+    var avaitControleur = !!navigator.serviceWorker.controller;
+    var dejaRecharge = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (avaitControleur && !dejaRecharge) { dejaRecharge = true; location.reload(); }
+    });
+
+    navigator.serviceWorker.register('sw.js').then(function (reg) {
+      App.sw.enregistre = true;
+      App.sw.actif = !!navigator.serviceWorker.controller;
+      App.reg = reg;
+    }).catch(function (e) {
       console.warn('Service worker non enregistré :', e.message);
     });
   }
