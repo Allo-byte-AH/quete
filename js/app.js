@@ -6,22 +6,52 @@ var App = {
   vue: 'dashboard',
 
   onglets: [
-    { id: 'dashboard', icone: '◆', label: 'Tableau de bord', court: 'Bord' },
-    { id: 'temps', icone: '⏱', label: 'Temps' },
-    { id: 'videos', icone: '▸', label: 'Vidéos' },
-    { id: 'finances', icone: '€', label: 'Finances' },
-    { id: 'analyse', icone: '◔', label: 'Analyse' },
-    { id: 'reglages', icone: '⚙', label: 'Réglages' }
+    { id: 'dashboard', icone: '◆', label: 'Tableau de bord', court: 'Bord', objet: 'VueDashboard' },
+    { id: 'temps', icone: '⏱', label: 'Temps', objet: 'VueTemps' },
+    { id: 'videos', icone: '▸', label: 'Vidéos', objet: 'VueVideos' },
+    { id: 'finances', icone: '€', label: 'Finances', objet: 'VueFinances' },
+    { id: 'analyse', icone: '◔', label: 'Analyse', objet: 'VueAnalyse' },
+    { id: 'reglages', icone: '⚙', label: 'Réglages', objet: 'VueReglages' }
   ],
 
+  // Fichiers indispensables : sans eux l'application ne peut pas démarrer.
+  noyau: [
+    ['U', 'js/utils.js'], ['Fusion', 'js/fusion.js'], ['Storage', 'js/storage.js'],
+    ['State', 'js/state.js'], ['Analyse', 'js/analyse.js'],
+    ['Distant', 'js/distant.js'], ['Sync', 'js/sync.js']
+  ],
+
+  // Une vue absente est ignorée plutôt que fatale : un fichier oublié lors
+  // d'un envoi ne doit pas rendre tout le reste inutilisable.
   vues: function () {
-    return {
-      dashboard: VueDashboard, temps: VueTemps, videos: VueVideos,
-      finances: VueFinances, analyse: VueAnalyse, reglages: VueReglages
-    };
+    var m = {};
+    this.onglets.forEach(function (o) {
+      if (window[o.objet]) m[o.id] = window[o.objet];
+    });
+    return m;
+  },
+
+  fichiersManquants: function () {
+    var l = this.noyau.filter(function (p) { return !window[p[0]]; })
+      .map(function (p) { return p[1]; });
+    this.onglets.forEach(function (o) {
+      if (!window[o.objet]) l.push('js/views/' + o.id + '.js');
+    });
+    return l;
   },
 
   async init() {
+    var manquants = this.fichiersManquants();
+    // Diagnostic explicite plutôt qu'un « X is not defined » incompréhensible.
+    var noyauKO = this.noyau.some(function (p) { return !window[p[0]]; });
+    if (noyauKO) {
+      document.getElementById('vue').innerHTML =
+        '<div class="carte"><h2>Fichiers manquants</h2>' +
+        '<p>Ces fichiers n\'ont pas été chargés. Vérifie qu\'ils sont bien présents ' +
+        'sur le serveur, au bon emplacement :</p><pre>' + manquants.join('\n') + '</pre></div>';
+      return;
+    }
+
     var mode = await Storage.init();
     await State.charger();
     this.brancher();
@@ -29,6 +59,11 @@ var App = {
     window.addEventListener('beforeunload', function () { State.sauverMaintenant(); });
     setInterval(function () { App.tick(); }, 1000);
     this.route();
+    if (manquants.length) {
+      console.warn('Fichiers manquants :', manquants);
+      this.message('Fichier manquant sur le serveur : ' + manquants.join(', ') +
+        '. Le reste fonctionne.', 'alerte');
+    }
     if (mode === 'serveur') this.message('Connecté au serveur local — données partagées entre appareils.', 'ok');
     // Après l'affichage : la synchronisation ne doit jamais retarder l'ouverture.
     Sync.demarrer();
@@ -58,8 +93,9 @@ var App = {
     document.getElementById('nav').innerHTML = this.onglets.map(function (o) {
       var etiquette = '<i>' + o.icone + '</i><b class="long">' + o.label + '</b>' +
         '<b class="court">' + (o.court || o.label) + '</b>';
-      if (o.bientot) {
-        return '<span class="onglet bientot" title="Module prévu — pas encore construit">' + etiquette + '</span>';
+      if (!window[o.objet]) {
+        return '<span class="onglet bientot" title="Fichier js/views/' + o.id +
+          '.js absent du serveur">' + etiquette + '</span>';
       }
       return '<a class="onglet' + (App.vue === o.id ? ' actif' : '') + '" href="#/' + o.id + '">' + etiquette + '</a>';
     }).join('');
