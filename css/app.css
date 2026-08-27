@@ -409,6 +409,8 @@ input[type=checkbox] { width: auto; }
 .sync-etat.ok { color: var(--vert); border-color: rgba(46,204,143,.3); background: rgba(46,204,143,.07); }
 .sync-etat.attente { color: var(--ambre); border-color: rgba(255,182,72,.3); background: rgba(255,182,72,.07); }
 .sync-etat.erreur { color: var(--rouge); border-color: rgba(255,92,114,.35); background: rgba(255,92,114,.08); }
+.version { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.version strong { color: var(--texte); }
 
 /* --- Analyse --- */
 
