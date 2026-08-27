@@ -10,14 +10,14 @@ var App = {
     { id: 'temps', icone: '⏱', label: 'Temps', objet: 'VueTemps' },
     { id: 'videos', icone: '▸', label: 'Vidéos', objet: 'VueVideos' },
     { id: 'finances', icone: '€', label: 'Finances', objet: 'VueFinances' },
-    { id: 'analyse', icone: '◔', label: 'Analyse', objet: 'VueAnalyse' },
+    { id: 'synthese', icone: '◔', label: 'Synthèse', objet: 'VueSynthese' },
     { id: 'reglages', icone: '⚙', label: 'Réglages', objet: 'VueReglages' }
   ],
 
   // Fichiers indispensables : sans eux l'application ne peut pas démarrer.
   noyau: [
     ['U', 'js/utils.js'], ['Fusion', 'js/fusion.js'], ['Storage', 'js/storage.js'],
-    ['State', 'js/state.js'], ['Analyse', 'js/analyse.js'],
+    ['State', 'js/state.js'], ['Synthese', 'js/synthese.js'],
     ['Distant', 'js/distant.js'], ['Sync', 'js/sync.js']
   ],
 
@@ -59,6 +59,11 @@ var App = {
     window.addEventListener('beforeunload', function () { State.sauverMaintenant(); });
     setInterval(function () { App.tick(); }, 1000);
     this.route();
+    if (!Local.disponible) {
+      this.message('Ce navigateur refuse le stockage local pour ce site. ' +
+        'L\'application fonctionne, mais tout sera perdu à la fermeture si la ' +
+        'synchronisation n\'est pas configurée. Autorise les cookies pour ce site.', 'erreur');
+    }
     if (manquants.length) {
       console.warn('Fichiers manquants :', manquants);
       this.message('Fichier manquant sur le serveur : ' + manquants.join(', ') +
@@ -201,6 +206,15 @@ var App = {
 };
 
 document.addEventListener('DOMContentLoaded', function () {
+  // Enregistré indépendamment du démarrage de l'application : même si une vue
+  // manque, le fonctionnement hors ligne doit rester acquis. Absent en file://,
+  // ce qui est normal.
+  if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
+    navigator.serviceWorker.register('sw.js').catch(function (e) {
+      console.warn('Service worker non enregistré :', e.message);
+    });
+  }
+
   App.init().catch(function (e) {
     console.error(e);
     document.getElementById('vue').innerHTML =

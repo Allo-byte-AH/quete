@@ -20,7 +20,7 @@ var Distant = (function () {
 
   function charger() {
     if (!lu) {
-      try { conf = JSON.parse(localStorage.getItem(CLE) || 'null'); }
+      try { conf = JSON.parse(Local.lire(CLE) || 'null'); }
       catch (e) { conf = null; }
       lu = true;
     }
@@ -29,10 +29,10 @@ var Distant = (function () {
   function configurer(c) {
     conf = { depot: (c.depot || '').trim(), jeton: (c.jeton || '').trim(), chemin: (c.chemin || 'data.json').trim() };
     lu = true;
-    localStorage.setItem(CLE, JSON.stringify(conf));
+    Local.ecrire(CLE, JSON.stringify(conf));
     return conf;
   }
-  function oublier() { conf = null; lu = true; localStorage.removeItem(CLE); }
+  function oublier() { conf = null; lu = true; Local.effacer(CLE); }
   function configure() { var c = charger(); return !!(c && c.depot && c.jeton); }
   function depot() { var c = charger(); return c ? c.depot : ''; }
   function chemin() { var c = charger(); return (c && c.chemin) || 'data.json'; }
