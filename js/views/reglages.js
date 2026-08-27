@@ -143,8 +143,28 @@ var VueReglages = (function () {
       '</div>';
   }
 
+  function application() {
+    var sw = App.sw;
+    var etat = !sw.supporte ? ['', 'Mode hors ligne indisponible (page ouverte en fichier local)']
+      : !sw.enregistre ? ['attente', 'Mode hors ligne non installé']
+      : sw.actif ? ['ok', 'Mode hors ligne actif — l\'application fonctionne sans réseau']
+      : ['attente', 'Mode hors ligne installé, actif à la prochaine ouverture'];
+
+    return '<div class="carte">' +
+      '<div class="carte-titre">Application</div>' +
+      '<div class="sync-etat ' + etat[0] + '">' + U.esc(etat[1]) + '</div>' +
+      '<div class="form-actions">' +
+        '<span class="version">Version <strong>' + U.esc(App.version) + '</strong></span>' +
+        '<button class="btn" data-action="reg.majApp">↻ Rechercher une mise à jour</button>' +
+      '</div>' +
+      '<p class="aide">Les mises à jour arrivent d\'elles-mêmes à l\'ouverture. ' +
+      'Ce bouton sert à ne pas attendre, ou à vérifier après une livraison. ' +
+      'Réinstaller l\'application sur le téléphone n\'est jamais nécessaire.</p>' +
+      '</div>';
+  }
+
   function render() {
-    return synchronisation() + objectifs() + clients() + categories() + categoriesFin() + donnees();
+    return synchronisation() + application() + objectifs() + clients() + categories() + categoriesFin() + donnees();
   }
 
   /* --- Actions --- */
@@ -201,6 +221,8 @@ var VueReglages = (function () {
       App.message(e.message, 'erreur');
     }
   };
+  App.actions['reg.majApp'] = function () { App.chercherMiseAJour(); };
+
   App.actions['reg.syncMaintenant'] = function () { Sync.maintenant().then(function () { App.render(); }); };
   App.actions['reg.syncOublier'] = function () {
     if (!confirm('Déconnecter la synchronisation ?\n\nTes données restent sur cet appareil et dans le dépôt, rien n\'est supprimé.')) return;
