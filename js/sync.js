@@ -24,6 +24,7 @@ var Sync = (function () {
   var derniere = null;
   var minuteur = null, sondeur = null;
   var enCours = false;
+  var branche = false;      // les écouteurs globaux ne se posent qu'une fois
 
   function poser(e, d) {
     etat = e; detail = d || '';
@@ -46,6 +47,12 @@ var Sync = (function () {
       if (document.visibilityState === 'visible') synchroniser();
     }, DELAI_SONDAGE);
 
+    // demarrer() est appelée au lancement, puis à chaque enregistrement de la
+    // configuration. Sans ce garde-fou, les écouteurs s'empilaient : trois
+    // enregistrements et le retour sur l'onglet déclenchait trois
+    // synchronisations simultanées sur le même fichier.
+    if (branche) return;
+    branche = true;
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible') synchroniser();
     });
@@ -102,7 +109,6 @@ var Sync = (function () {
       poser('erreur', e.message);
       if (!essai) console.warn('Synchronisation :', e);
     } finally {
-      if (!(etat === 'occupe')) enCours = false;
       enCours = false;
     }
   }

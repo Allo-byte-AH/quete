@@ -69,26 +69,39 @@ var Synthese = (function () {
 
   /* --- Clés de regroupement --- */
 
+  // Un regroupement temporel se lit chronologiquement et ne porte aucune
+  // couleur propre : mois et semaine partagent donc plusieurs comportements.
+  function temporel(f) {
+    return f.groupement === 'mois' || f.groupement === 'semaine';
+  }
+
   function clefs(f, p) {
     function videoDe(e) { return e.videoId ? p.parId[e.videoId] : null; }
+
+    // Les deux regroupements temporels ne diffèrent que par le découpage
+    // appliqué à la même date : celle du CA pour ce qui est rattaché à un
+    // livrable, la date propre de l'entrée sinon.
+    function tranche(dateISO) {
+      return f.groupement === 'semaine' ? U.debutSemaine(dateISO) : U.mois(dateISO);
+    }
 
     return {
       entree: function (e) {
         var v = videoDe(e);
         if (f.groupement === 'video') return v ? v.id : HORS;
-        if (f.groupement === 'mois') return v ? U.mois(State.dateCA(v)) : U.mois(e.date);
+        if (temporel(f)) return tranche(v ? State.dateCA(v) : e.date);
         // Par client : une entrée rattachée à une vidéo suit le client de la
         // vidéo, pour que ses heures et son CA tombent sur la même ligne.
         return (v ? (v.clientId || e.clientId) : e.clientId) || SANS;
       },
       video: function (v) {
         if (f.groupement === 'video') return v.id;
-        if (f.groupement === 'mois') return U.mois(State.dateCA(v));
+        if (temporel(f)) return tranche(State.dateCA(v));
         return v.clientId || SANS;
       },
       revenu: function (t) {
         if (f.groupement === 'video') return HORS;
-        if (f.groupement === 'mois') return U.mois(t.date);
+        if (temporel(f)) return tranche(t.date);
         return t.clientId || SANS;
       },
       // Second niveau : toujours par vidéo.
@@ -101,6 +114,7 @@ var Synthese = (function () {
   function libelle(f, cle) {
     if (cle === HORS) return 'Hors livrable';
     if (cle === SANS) return 'Sans client';
+    if (f.groupement === 'semaine') return U.semaineLisible(cle);
     if (f.groupement === 'mois') return U.moisLisible(cle);
     if (f.groupement === 'video') return State.titreVideo(cle) || '(vidéo supprimée)';
     return State.nomClient(cle);
@@ -199,13 +213,15 @@ var Synthese = (function () {
 
     return {
       total: finir(total),
-      lignes: trier(resultat, f.groupement),
+      lignes: trier(resultat, f),
       serie: serie(f, p, compte)
     };
   }
 
-  function trier(l, groupement) {
-    if (groupement === 'mois') return l.sort(function (a, b) { return a.id.localeCompare(b.id); });
+  function trier(l, f) {
+    // Les identifiants temporels (« 2026-08 », « 2026-08-24 ») sont
+    // chronologiques par construction, contrairement à leurs libellés.
+    if (temporel(f)) return l.sort(function (a, b) { return a.id.localeCompare(b.id); });
     return l.sort(function (a, b) {
       if (a.taux === null && b.taux === null) return b.heures - a.heures;
       if (a.taux === null) return 1;
@@ -264,6 +280,7 @@ var Synthese = (function () {
     filtresParDefaut: filtresParDefaut,
     perimetre: perimetre,
     calculer: calculer,
-    granularite: granularite
+    granularite: granularite,
+    temporel: temporel
   };
 })();

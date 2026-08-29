@@ -1,9 +1,14 @@
-/* Couche de stockage.
+/* Couche de stockage : persistance locale, copies de sécurité, export/import.
  *
- * IMPORTANT : toute l'application passe par ici, en asynchrone, et ne sait jamais
- * où les données atterrissent. Aujourd'hui c'est localStorage (phase 1, zéro
- * serveur). Le jour où l'on ajoute le petit serveur local pour accéder au
- * téléphone, seules les 3 fonctions ci-dessous changent — aucune vue à réécrire.
+ * Toute l'application passe par ici, en asynchrone, et ne sait jamais où les
+ * données atterrissent.
+ *
+ * Ce fichier sondait autrefois un `/api/state` au démarrage, en prévision d'un
+ * petit serveur PHP hébergé chez Infomaniak. Cette piste a été abandonnée au
+ * profit du dépôt GitHub : la synchronisation vit désormais dans distant.js et
+ * sync.js, par-dessus le stockage local plutôt qu'à sa place. La sonde n'a donc
+ * plus d'objet — elle ne laissait qu'un 404 dans la console et un aller-retour
+ * réseau avant chaque ouverture.
  */
 
 /* Accès au stockage du navigateur, à l'épreuve des refus.
@@ -70,7 +75,6 @@ var Storage = (function () {
   var MAX_BACKUPS = 7;
 
   var CLE_APPAREIL = 'quete.appareil';
-  var mode = 'local'; // 'local' | 'serveur'
 
   // Identifiant de CET appareil. Volontairement hors de l'état synchronisé :
   // il doit rester différent sur le PC et sur le téléphone, sinon le départage
@@ -84,41 +88,32 @@ var Storage = (function () {
     return v;
   }
 
-  // Détecte si un serveur local expose /api/state. Si oui, il devient la source
-  // de vérité (et le téléphone peut taper la même URL). Sinon : localStorage.
-  // Tant qu'il n'y a pas de serveur, cette sonde laisse un 404 dans la console :
-  // c'est attendu, et sans conséquence.
-  async function init() {
-    try {
-      var r = await fetch('api/state', { method: 'GET', cache: 'no-store' });
-      if (r.ok) { mode = 'serveur'; return mode; }
-    } catch (e) { /* pas de serveur : normal en phase 1 */ }
-    mode = 'local';
-    return mode;
-  }
-
   async function charger() {
-    if (mode === 'serveur') {
-      var r = await fetch('api/state', { cache: 'no-store' });
-      if (!r.ok) throw new Error('Lecture serveur impossible');
-      return await r.json();
-    }
     var brut = Local.lire(CLE);
     return brut ? JSON.parse(brut) : null;
   }
 
+  /* Renvoie false si l'écriture n'a pas eu lieu — quota plein, stockage refusé.
+   *
+   * Ce retour n'est pas décoratif : sans lui, un stockage saturé faisait perdre
+   * la journée en silence. L'application continuait d'afficher les saisies
+   * (elles vivent en mémoire), et tout disparaissait à la fermeture.
+   *
+   * Les copies quotidiennes occupent sept fois l'état. Quand la place manque,
+   * ce sont donc elles qu'il faut sacrifier en premier : on les purge et on
+   * retente une fois avant d'abandonner. */
   async function sauver(state) {
     var json = JSON.stringify(state);
-    if (mode === 'serveur') {
-      await fetch('api/state', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: json
-      });
-      return;
-    }
-    Local.ecrire(CLE, json);
-    snapshotQuotidien(json);
+    if (Local.ecrire(CLE, json)) { snapshotQuotidien(json); return true; }
+
+    purgerBackups(0);
+    if (Local.ecrire(CLE, json)) return true;
+    return false;
+  }
+
+  function purgerBackups(garder) {
+    var cles = Local.cles().filter(function (k) { return k && k.indexOf(CLE_BACKUP) === 0; }).sort();
+    while (cles.length > garder) Local.effacer(cles.shift());
   }
 
   /* --- Filet de sécurité : une copie par jour, 7 jours glissants --- */
@@ -128,8 +123,7 @@ var Storage = (function () {
     var deja = Local.lire(cle);
     if (deja && deja.length > json.length * 1.5) return;
     Local.ecrire(cle, json);
-    var cles = Local.cles().filter(function (k) { return k && k.indexOf(CLE_BACKUP) === 0; }).sort();
-    while (cles.length > MAX_BACKUPS) Local.effacer(cles.shift());
+    purgerBackups(MAX_BACKUPS);
   }
 
   function listerBackups() {
@@ -179,10 +173,9 @@ var Storage = (function () {
   }
 
   return {
-    init: init, charger: charger, sauver: sauver,
+    charger: charger, sauver: sauver,
     exporter: exporter, importer: importer,
     listerBackups: listerBackups, lireBackup: lireBackup,
-    taille: taille, appareil: appareil,
-    get mode() { return mode; }
+    taille: taille, appareil: appareil
   };
 })();

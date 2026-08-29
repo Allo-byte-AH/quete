@@ -39,9 +39,24 @@ var Distant = (function () {
 
   /* --- Base64 en UTF-8 ---
    * btoa ne sait traiter que des octets : sans cette conversion, le moindre
-   * accent casse l'encodage. */
+   * accent casse l'encodage.
+   *
+   * Le découpage n'est pas une optimisation. `fromCharCode.apply` passe chaque
+   * octet en argument, et tous les moteurs plafonnent le nombre d'arguments :
+   * au-delà d'une centaine de kilo-octets (bien moins sur iOS), l'appel lève
+   * un RangeError. La synchronisation se serait donc arrêtée net au bout de
+   * quelques mois de saisie — sans que rien d'autre ne cesse de fonctionner,
+   * ce qui est la pire façon de tomber en panne.
+   */
+  var PAS_B64 = 0x8000;   // 32 768 octets par passe, sous la limite de tous les moteurs
+
   function versB64(txt) {
-    return btoa(String.fromCharCode.apply(null, new TextEncoder().encode(txt)));
+    var octets = new TextEncoder().encode(txt);
+    var morceaux = [];
+    for (var i = 0; i < octets.length; i += PAS_B64) {
+      morceaux.push(String.fromCharCode.apply(null, octets.subarray(i, i + PAS_B64)));
+    }
+    return btoa(morceaux.join(''));
   }
   function depuisB64(b64) {
     var bin = atob(String(b64).replace(/\s/g, ''));
@@ -143,6 +158,9 @@ var Distant = (function () {
   return {
     charger: charger, configurer: configurer, oublier: oublier,
     configure: configure, depot: depot, chemin: chemin,
-    lire: lire, ecrire: ecrire, tester: tester
+    lire: lire, ecrire: ecrire, tester: tester,
+    // Exposés pour les tests : l'encodage est la seule partie du transport
+    // qu'on puisse vérifier sans appeler GitHub, et c'est celle qui a cassé.
+    versB64: versB64, depuisB64: depuisB64
   };
 })();

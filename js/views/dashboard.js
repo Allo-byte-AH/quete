@@ -43,6 +43,39 @@ var VueDashboard = (function () {
     }).join('') + '</div>';
   }
 
+  // Rappel de la couche jeu. Absent tant que rien n'est créé : un bandeau
+  // « niveau 1, 0 XP » ne dit rien à personne. Le module est facultatif — le
+  // tableau de bord doit survivre à son absence.
+  function progression() {
+    if (!window.Jeu || !window.VueQuetes) return '';
+    if (!State.systemes().length && !State.quetes().length) return '';
+    var r = Jeu.resume();
+    var dus = r.reste.slice(0, 4);
+
+    return '<div class="carte">' +
+      '<div class="jeu-strip" data-action="nav" data-vue="quetes">' +
+        '<div class="jeu-pastille">' + r.niveau.niveau + '</div>' +
+        '<div class="jeu-corps">' +
+          '<div class="niveau-ligne"><strong>' + r.xp + ' XP</strong>' +
+            '<span class="muted">' +
+              (r.prevus ? r.faits + ' / ' + r.prevus + ' aujourd\'hui' : 'niveau ' + r.niveau.niveau) +
+            '</span></div>' +
+          '<div class="barre"><div class="barre-plein" style="width:' + r.niveau.pct + '%"></div></div>' +
+        '</div>' +
+        (r.aReclamer.length
+          ? '<div class="niveau-alerte">' + r.aReclamer.length + ' à réclamer</div>'
+          : '') +
+      '</div>' +
+      (dus.length
+        ? '<div class="jeu-reste" style="margin-top:12px">' + dus.map(function (s) {
+            return '<button class="chip" data-action="dash.cocher" data-id="' + s.id + '">' +
+              '<span class="pastille" style="background:' + s.couleur + '"></span>' +
+              U.esc(s.nom) + ' <span class="muted">+' + (s.xp || 10) + '</span></button>';
+          }).join('') + '</div>'
+        : '') +
+      '</div>';
+  }
+
   function accueilVide() {
     return '<div class="carte accueil">' +
       '<h2>Bienvenue.</h2>' +
@@ -53,7 +86,7 @@ var VueDashboard = (function () {
   }
 
   function render() {
-    if (!State.entries().length && !State.d.chrono) return accueilVide();
+    if (!State.entries().length && !State.d.chrono && !State.systemes().length) return accueilVide();
 
     var auj = U.aujourdhui();
     var lundi = U.debutSemaine(auj);
@@ -81,6 +114,7 @@ var VueDashboard = (function () {
     var videosMois = State.videosPeriode(duMois, auMois);
 
     return '' +
+      progression() +
       '<div class="stats">' +
         stat("Aujourd'hui", U.fmtDuree(tJour), U.pct(tJour, cibleJour) + '% de l\'objectif') +
         stat('Cette semaine', U.fmtDuree(tSem), U.pct(tSem, cibleSem) + '% de ' + U.fmtDuree(cibleSem)) +
@@ -135,6 +169,16 @@ var VueDashboard = (function () {
   App.actions['dash.jour'] = function (el) {
     VueTemps.date = el.dataset.date;
     App.aller('temps');
+  };
+
+  // Cocher une habitude depuis le tableau de bord : le geste ne vaut que s'il
+  // ne demande pas de changer d'onglet.
+  App.actions['dash.cocher'] = function (el) {
+    var s = State.systemes().find(function (x) { return x.id === el.dataset.id; });
+    if (!s) return;
+    Jeu.basculer(s, U.aujourdhui());
+    App.render();
+    App.message('+' + (s.xp || 10) + ' XP', 'ok');
   };
 
   return { titre: 'Tableau de bord', render: render };

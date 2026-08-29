@@ -87,9 +87,8 @@ var VueReglages = (function () {
     var ko = (Storage.taille() / 1024).toFixed(1).replace('.', ',');
     return '<div class="carte">' +
       '<div class="carte-titre">Données</div>' +
-      '<p class="muted">Stockage : <strong>' +
-        (Storage.mode === 'serveur' ? 'serveur local (partagé entre appareils)' : 'ce navigateur, sur cet appareil') +
-      '</strong> · ' + ko + ' Ko · ' + State.entries().length + ' entrées.</p>' +
+      '<p class="muted">Stockage : <strong>ce navigateur, sur cet appareil</strong> · ' +
+        ko + ' Ko · ' + State.entries().length + ' entrées.</p>' +
       '<div class="form-actions">' +
         '<button class="btn primaire" data-action="reg.exporter">↓ Exporter en JSON</button>' +
         '<button class="btn vert" data-action="reg.importerOuvrir" data-mode="fusion">↑ Importer et fusionner</button>' +
@@ -194,10 +193,25 @@ var VueReglages = (function () {
   };
   App.actions['reg.clientSuppr'] = function (el) {
     var id = el.dataset.id;
-    var liees = State.entries().filter(function (e) { return e.clientId === id; });
-    if (liees.length && !confirm(liees.length + ' entrée(s) sont rattachées à ce client. Elles seront conservées mais sans client. Continuer ?')) return;
-    if (!liees.length && !confirm('Supprimer ce client ?')) return;
-    liees.forEach(function (e) { State.modifier(e, { clientId: null }); });
+    // Détacher les trois collections, pas seulement les entrées. Une vidéo
+    // laissée avec l'identifiant d'un client supprimé s'affiche « — » partout
+    // et forme, dans la synthèse par client, une ligne fantôme sans nom.
+    var entrees = State.entries().filter(function (e) { return e.clientId === id; });
+    var videos = State.videos().filter(function (v) { return v.clientId === id; });
+    var mouvements = State.transactions().filter(function (t) { return t.clientId === id; });
+
+    var bouts = [];
+    if (entrees.length) bouts.push(entrees.length + ' entrée(s) de temps');
+    if (videos.length) bouts.push(videos.length + ' vidéo(s)');
+    if (mouvements.length) bouts.push(mouvements.length + ' mouvement(s)');
+
+    if (!confirm(bouts.length
+      ? bouts.join(', ') + ' sont rattachées à ce client.\n\nElles seront conservées, mais sans client. Continuer ?'
+      : 'Supprimer ce client ?')) return;
+
+    [entrees, videos, mouvements].forEach(function (l) {
+      l.forEach(function (r) { State.modifier(r, { clientId: null }); });
+    });
     State.supprimerEnreg('clients', id);
     App.render();
   };
@@ -286,6 +300,22 @@ var VueReglages = (function () {
     App.render();
   };
 
+  /* Les trois opérations qui REMPLACENT l'état se heurtent à la fusion.
+   * Le cycle de synchronisation suivant réunit le local et le distant : tout
+   * ce qu'on vient de retirer revient du dépôt quelques secondes plus tard.
+   * C'est logique — la fusion ne perd jamais rien, c'est sa raison d'être —
+   * mais l'écran donne alors l'illusion que l'opération a fonctionné.
+   * Mieux vaut le dire avant que de le laisser découvrir. */
+  function bloqueParSync(quoi) {
+    if (!Distant.configure()) return false;
+    return !confirm(
+      'La synchronisation est active.\n\n' + quoi + ' ne concerne que cet appareil. ' +
+      'La prochaine synchronisation, dans quelques secondes, réunira cet appareil et le dépôt : ' +
+      'les données reviendront et l\'opération sera annulée.\n\n' +
+      'Pour qu\'elle tienne, utilise d\'abord « Déconnecter » dans la carte Synchronisation.\n\n' +
+      'Continuer quand même ?');
+  }
+
   App.actions['reg.exporter'] = function () {
     App.message('Fichier ' + Storage.exporter(State.d) + ' téléchargé.', 'ok');
   };
@@ -306,6 +336,7 @@ var VueReglages = (function () {
       if (modeImport === 'remplacer') {
         if (!confirm('Remplacer TOUTES les données actuelles par ce fichier (' + obj.entries.length +
                      ' entrées) ?\n\nCe qui n\'est pas dans le fichier sera perdu.')) return;
+        if (bloqueParSync('Un import en mode « remplacer »')) return;
         await State.remplacer(obj);
         App.render();
         App.message('Données remplacées.', 'ok');
@@ -323,6 +354,7 @@ var VueReglages = (function () {
     var obj = Storage.lireBackup(el.dataset.cle);
     if (!obj) return App.message('Copie introuvable.', 'erreur');
     if (!confirm('Restaurer cette copie (' + obj.entries.length + ' entrées) ? Les données actuelles seront remplacées.')) return;
+    if (bloqueParSync('Une restauration')) return;
     await State.remplacer(obj);
     App.render();
     App.message('Copie restaurée.', 'ok');
@@ -330,6 +362,7 @@ var VueReglages = (function () {
   App.actions['reg.effacer'] = async function () {
     if (!confirm('Tout effacer définitivement ? Exporte d\'abord si tu as un doute.')) return;
     if (!confirm('Vraiment sûr ? Cette action est irréversible.')) return;
+    if (bloqueParSync('Un effacement')) return;
     await State.remplacer(State.defaut());
     App.render();
     App.message('Données réinitialisées.', 'ok');

@@ -293,11 +293,24 @@ var VueTemps = (function () {
     lancer(e);
   };
 
+  // Message commun aux deux façons d'arrêter un chrono ayant tourné plus de
+  // 24 h : ce qui est enregistré ne peut pas correspondre à ce qui s'est
+  // écoulé, et l'utilisateur doit le savoir pour corriger l'entrée.
+  function alerteTropLong(r) {
+    return 'Le chrono tournait depuis ' + U.fmtDuree(r.ecoule) + ' — sans doute oublié. ' +
+      'Seul ' + U.fmtDuree(U.duree(r.entree)) + ' a été enregistré (' +
+      r.entree.debut + '→' + r.entree.fin + '). Corrige l\'entrée.';
+  }
+
   function lancer(modele) {
     var precedent = State.demarrerChrono(modele);
     date = U.aujourdhui();
     App.render();
     var msg = '▶ ' + State.libelleTache(modele);
+    if (precedent && precedent.tropLong) {
+      App.message(alerteTropLong(precedent) + ' · ' + msg, 'alerte');
+      return;
+    }
     if (precedent) {
       msg = precedent.entree
         ? '« ' + State.libelleTache(precedent.chrono) + ' » arrêté à ' + U.fmtDuree(precedent.ecoule) + ' · ' + msg
@@ -317,6 +330,7 @@ var VueTemps = (function () {
     var r = State.arreterChrono(0);
     date = r.chrono.date;
     App.render();
+    if (r.tropLong) { App.message(alerteTropLong(r), 'alerte'); return; }
     App.message(U.fmtDuree(r.ecoule) + ' enregistré sur « ' + State.libelleTache(r.chrono) + ' ».', 'ok');
   };
 
@@ -337,21 +351,27 @@ var VueTemps = (function () {
   };
 
   App.actions['temps.enregistrer'] = function (f) {
+    // Valider AVANT de résoudre le client et la vidéo. Les deux se créent à la
+    // volée : les résoudre en premier laissait un livrable et un client
+    // orphelins derrière chaque saisie refusée — une heure de fin oubliée
+    // suffisait à polluer la liste des vidéos.
+    var heures = { debut: f.debut.value, fin: f.fin.value };
+    if (!heures.fin) { App.message('Indique une heure de fin (ou utilise « Démarrer maintenant »).', 'erreur'); return; }
+    if (U.parseHM(heures.debut) === null || U.parseHM(heures.fin) === null) {
+      App.message('Heures invalides.', 'erreur'); return;
+    }
+    if (U.duree(heures) === 0) { App.message('Début et fin identiques.', 'erreur'); return; }
+
     var clientId = resoudreClient(f);
     var brut = {
       date: f.date.value,
-      debut: f.debut.value,
-      fin: f.fin.value,
+      debut: heures.debut,
+      fin: heures.fin,
       categorieId: f.categorieId.value,
       clientId: clientId,
       videoId: resoudreVideo(f, clientId),
       note: f.note.value.trim()
     };
-    if (!brut.fin) { App.message('Indique une heure de fin (ou utilise « Démarrer maintenant »).', 'erreur'); return; }
-    if (U.parseHM(brut.debut) === null || U.parseHM(brut.fin) === null) {
-      App.message('Heures invalides.', 'erreur'); return;
-    }
-    if (U.duree(brut) === 0) { App.message('Début et fin identiques.', 'erreur'); return; }
 
     var conflits = State.chevauchements(brut, editId);
 

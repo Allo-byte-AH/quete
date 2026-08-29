@@ -50,6 +50,32 @@ var State = (function () {
     };
   }
 
+  /* Assainissement des données venues d'ailleurs.
+   *
+   * Toute donnée étrangère — fichier importé, contenu du dépôt — passe par
+   * migrer(). C'est donc le seul endroit où la vérifier, et il faut le faire :
+   * les couleurs et les identifiants sont interpolés tels quels dans des
+   * attributs HTML par les vues. Une couleur valant `#fff" onmouseover="…`
+   * exécute du code sur cette origine — celle-là même où le jeton GitHub est
+   * stocké. Le fichier hostile est peu probable ; la conséquence ne l'est pas.
+   *
+   * Les identifiants légitimes sont en base 36, plus « : » pour les clés
+   * déterministes du journal d'expérience : ce jeu de caractères suffit, et
+   * les données saines en ressortent inchangées.
+   */
+  var CHAMPS_ID = ['id', 'refId', 'clientId', 'categorieId', 'videoId', 'categorieFinId'];
+
+  function assainir(x) {
+    Fusion.COLLECTIONS.forEach(function (nom) {
+      (x[nom] || []).forEach(function (r) {
+        if (!r || typeof r !== 'object') return;
+        if ('couleur' in r) r.couleur = U.couleur(r.couleur);
+        CHAMPS_ID.forEach(function (c) { r[c] = U.identifiant(r[c]); });
+      });
+    });
+    return x;
+  }
+
   // Complète les clés manquantes : un export ancien reste lisible.
   function migrer(x) {
     var base = defaut();
@@ -72,7 +98,7 @@ var State = (function () {
       });
       x.version = 2;
     }
-    return x;
+    return assainir(x);
   }
 
   /* --- Horodatage des écritures --- */
@@ -120,6 +146,9 @@ var State = (function () {
   function categories() { return vivants(d.categories); }
   function transactions() { return vivants(d.transactions); }
   function categoriesFin() { return vivants(d.categoriesFin); }
+  function systemes() { return vivants(d.systemes); }
+  function quetes() { return vivants(d.quetes); }
+  function xpLog() { return vivants(d.xpLog); }
 
   async function charger() {
     var brut = null;
@@ -145,16 +174,33 @@ var State = (function () {
   // Sauvegarde groupée : on peut appeler sauver() après chaque frappe sans souci.
   // L'écriture locale est immédiate ; la poussée vers le distant est planifiée
   // par Sync, qui la regroupe à son tour.
+  // Une écriture refusée ne doit pas passer inaperçue : l'application
+  // continuerait d'afficher des saisies qui ne survivraient pas à la
+  // fermeture. Un seul message tant que la situation dure — la sauvegarde est
+  // appelée à chaque frappe.
+  var ecritureKO = false;
+  function verifierEcriture(ok) {
+    if (ok) { ecritureKO = false; return ok; }
+    if (ecritureKO) return ok;
+    ecritureKO = true;
+    if (window.App && App.message) {
+      App.message('Le navigateur refuse d\'enregistrer — stockage plein ou bloqué. ' +
+        'Tes dernières saisies ne survivront pas à la fermeture : exporte-les, ' +
+        'ou configure la synchronisation.', 'erreur');
+    }
+    return ok;
+  }
+
   function sauver() {
     clearTimeout(timer);
     timer = setTimeout(function () {
-      Storage.sauver(d);
+      Storage.sauver(d).then(verifierEcriture);
       if (window.Sync) Sync.planifier();
     }, 250);
   }
   function sauverMaintenant() {
     clearTimeout(timer);
-    return Storage.sauver(d);
+    return Storage.sauver(d).then(verifierEcriture);
   }
 
   function remplacer(nouveau) {
@@ -282,7 +328,11 @@ var State = (function () {
     d.chrono = null;
     toucherSingleton('chrono');
     sauver();
-    return { entree: e, ecoule: ecoule, chrono: c };
+    // Une entrée ne sait exprimer qu'un début et une fin dans la même journée :
+    // au-delà de 24 h, la durée enregistrée est amputée d'un tour d'horloge.
+    // On le signale plutôt que de laisser passer un chiffre faux — un chrono
+    // oublié une nuit est le cas le plus courant, pas le plus rare.
+    return { entree: e, ecoule: ecoule, chrono: c, tropLong: ecoule >= 1440 };
   }
 
   // Jette la session en cours sans rien enregistrer.
@@ -512,6 +562,47 @@ var State = (function () {
     supprimerEnreg('transactions', id);
   }
 
+  /* ------------------------------------------------------------------
+   * Couche jeu — systèmes, quêtes, journal d'expérience
+   * Les règles vivent dans js/jeu.js ; ici, seulement l'écriture.
+   * ------------------------------------------------------------------ */
+
+  function ajouterSysteme(s) {
+    s.id = U.id();
+    s.creeLe = new Date().toISOString();
+    marquer(s);
+    d.systemes.push(s);
+    sauver();
+    return s;
+  }
+  function ajouterQuete(q) {
+    q.id = U.id();
+    q.creeLe = new Date().toISOString();
+    marquer(q);
+    d.quetes.push(q);
+    sauver();
+    return q;
+  }
+
+  // L'identifiant est fourni par l'appelant, et il est déterministe (voir
+  // js/jeu.js). Une ligne déjà présente est donc réécrite, jamais dupliquée —
+  // y compris une ligne annulée puis recochée, qu'on relève au lieu d'en
+  // empiler une seconde.
+  function logXP(id, champs) {
+    var r = d.xpLog.find(function (x) { return x.id === id; });
+    if (r) {
+      Object.assign(r, champs);
+      r.supprime = false;
+      marquer(r);
+    } else {
+      r = marquer(Object.assign({ id: id, creeLe: new Date().toISOString() }, champs));
+      d.xpLog.push(r);
+    }
+    sauver();
+    return r;
+  }
+  function annulerXP(id) { return supprimerEnreg('xpLog', id); }
+
   return {
     get d() { return d; },
     STATUTS: STATUTS, statut: statut,
@@ -519,6 +610,7 @@ var State = (function () {
     // Lectures filtrées : jamais de pierre tombale au-delà de cette frontière.
     entries: entries, videos: videos, clients: clients,
     categories: categories, transactions: transactions, categoriesFin: categoriesFin,
+    systemes: systemes, quetes: quetes, xpLog: xpLog,
     // Écritures horodatées.
     marquer: marquer, modifier: modifier, supprimerEnreg: supprimerEnreg,
     toucherSingleton: toucherSingleton, fusionnerAvec: fusionnerAvec,
@@ -545,6 +637,9 @@ var State = (function () {
     minutesClient: minutesClient, caClient: caClient, tauxClient: tauxClient,
     aFacturer: aFacturer, enAttentePaiement: enAttentePaiement,
     categorieFin: categorieFin,
-    ajouterTransaction: ajouterTransaction, supprimerTransaction: supprimerTransaction
+    ajouterTransaction: ajouterTransaction, supprimerTransaction: supprimerTransaction,
+
+    ajouterSysteme: ajouterSysteme, ajouterQuete: ajouterQuete,
+    logXP: logXP, annulerXP: annulerXP
   };
 })();

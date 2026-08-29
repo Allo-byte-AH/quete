@@ -18,16 +18,17 @@ var App = {
   onglets: [
     { id: 'dashboard', icone: '◆', label: 'Tableau de bord', court: 'Bord', objet: 'VueDashboard' },
     { id: 'temps', icone: '⏱', label: 'Temps', objet: 'VueTemps' },
+    { id: 'quetes', icone: '⚔', label: 'Quêtes', objet: 'VueQuetes' },
     { id: 'videos', icone: '▸', label: 'Vidéos', objet: 'VueVideos' },
-    { id: 'finances', icone: '€', label: 'Finances', objet: 'VueFinances' },
-    { id: 'synthese', icone: '◔', label: 'Synthèse', objet: 'VueSynthese' },
-    { id: 'reglages', icone: '⚙', label: 'Réglages', objet: 'VueReglages' }
+    { id: 'finances', icone: '€', label: 'Finances', court: 'Fin.', objet: 'VueFinances' },
+    { id: 'synthese', icone: '◔', label: 'Synthèse', court: 'Synth.', objet: 'VueSynthese' },
+    { id: 'reglages', icone: '⚙', label: 'Réglages', court: 'Régl.', objet: 'VueReglages' }
   ],
 
   // Fichiers indispensables : sans eux l'application ne peut pas démarrer.
   noyau: [
     ['U', 'js/utils.js'], ['Fusion', 'js/fusion.js'], ['Storage', 'js/storage.js'],
-    ['State', 'js/state.js'], ['Synthese', 'js/synthese.js'],
+    ['State', 'js/state.js'], ['Synthese', 'js/synthese.js'], ['Jeu', 'js/jeu.js'],
     ['Distant', 'js/distant.js'], ['Sync', 'js/sync.js']
   ],
 
@@ -62,7 +63,6 @@ var App = {
       return;
     }
 
-    var mode = await Storage.init();
     await State.charger();
     this.brancher();
     window.addEventListener('hashchange', function () { App.route(); });
@@ -79,7 +79,6 @@ var App = {
       this.message('Fichier manquant sur le serveur : ' + manquants.join(', ') +
         '. Le reste fonctionne.', 'alerte');
     }
-    if (mode === 'serveur') this.message('Connecté au serveur local — données partagées entre appareils.', 'ok');
     // Après l'affichage : la synchronisation ne doit jamais retarder l'ouverture.
     Sync.demarrer();
   },

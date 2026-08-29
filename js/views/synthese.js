@@ -81,13 +81,19 @@ var VueSynthese = (function () {
         }).join('') + '</div>' +
       '</div>' +
       '<div class="an-outils">' +
+        // Quatre choix ne tiennent pas côte à côte sur un téléphone en « Par
+        // semaine » : le libellé court prend le relais, comme dans la navigation.
         '<div class="segmente">' + [
-          { id: 'client', nom: 'Par client' },
-          { id: 'video', nom: 'Par vidéo' },
-          { id: 'mois', nom: 'Par mois' }
+          { id: 'client', nom: 'client' },
+          { id: 'video', nom: 'vidéo' },
+          { id: 'semaine', nom: 'semaine' },
+          { id: 'mois', nom: 'mois' }
         ].map(function (g) {
           return '<button class="seg' + (f.groupement === g.id ? ' actif' : '') +
-            '" data-action="an.groupement" data-id="' + g.id + '">' + g.nom + '</button>';
+            '" data-action="an.groupement" data-id="' + g.id + '">' +
+            '<span class="long">Par ' + g.nom + '</span>' +
+            '<span class="court">' + g.nom.charAt(0).toUpperCase() + g.nom.slice(1) + '</span>' +
+            '</button>';
         }).join('') + '</div>' +
         '<button class="btn' + (panneau ? ' primaire' : '') + '" data-action="an.panneau">' +
           (panneau ? '▾' : '▸') + ' Filtres' + (resume() ? ' · ' + resume() : '') + '</button>' +
@@ -229,9 +235,10 @@ var VueSynthese = (function () {
 
   function trierLignes(l) {
     if (tri.id === 'libelle') {
-      // Par mois, l'identifiant (2026-07) est chronologique là où le libellé
-      // (« juillet 2026 ») ne l'est pas.
-      var cle = f.groupement === 'mois'
+      // Par mois ou par semaine, l'identifiant (2026-07, 2026-08-24) est
+      // chronologique là où le libellé (« juillet 2026 », « S35 · 24–30 août »)
+      // ne l'est pas.
+      var cle = Synthese.temporel(f)
         ? function (x) { return x.id; }
         : function (x) { return x.libelle.toLowerCase(); };
       return l.slice().sort(function (a, b) { return cle(a).localeCompare(cle(b)) * tri.sens; });
@@ -244,7 +251,9 @@ var VueSynthese = (function () {
   // Chaque regroupement a son ordre naturel : chronologique pour les mois,
   // du plus rentable au moins rentable pour les clients et les vidéos.
   function triParDefaut(groupement) {
-    return groupement === 'mois' ? { id: 'libelle', sens: 1 } : { id: 'taux', sens: -1 };
+    return Synthese.temporel({ groupement: groupement })
+      ? { id: 'libelle', sens: 1 }
+      : { id: 'taux', sens: -1 };
   }
 
   function tableau(r) {
@@ -254,7 +263,7 @@ var VueSynthese = (function () {
 
     var entete = '<div class="an-ligne an-entete" style="' + gabarit(cols) + '">' +
       '<button class="an-th gauche' + (tri.id === 'libelle' ? ' actif' : '') + '" data-action="an.tri" data-id="libelle">' +
-        (f.groupement === 'mois' ? 'Période' : f.groupement === 'video' ? 'Vidéo' : 'Client') +
+        (Synthese.temporel(f) ? 'Période' : f.groupement === 'video' ? 'Vidéo' : 'Client') +
         (tri.id === 'libelle' ? (tri.sens < 0 ? ' ▾' : ' ▴') : '') + '</button>' +
       cols.map(function (c) {
         return '<button class="an-th' + (tri.id === c.id ? ' actif' : '') + '" data-action="an.tri" data-id="' + c.id + '">' +

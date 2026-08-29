@@ -25,6 +25,17 @@ var U = (function () {
   }
   function debutMois(s) { return s.slice(0, 7) + '-01'; }
 
+  // Numéro de semaine ISO 8601 : la semaine 1 est celle qui contient le premier
+  // jeudi de l'année. C'est la convention française, et celle qu'on retrouve sur
+  // les factures et les plannings clients.
+  function numeroSemaine(dateISO) {
+    var d = depuisISO(dateISO);
+    d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));      // le jeudi de la semaine
+    var jeudi1 = new Date(d.getFullYear(), 0, 4);
+    jeudi1.setDate(jeudi1.getDate() + 3 - ((jeudi1.getDay() + 6) % 7));
+    return 1 + Math.round((d - jeudi1) / (7 * 86400000));
+  }
+
   var fmtJour = new Intl.DateTimeFormat('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
   var fmtJourLong = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   var fmtJourCourt = new Intl.DateTimeFormat('fr-FR', { weekday: 'narrow' });
@@ -99,6 +110,17 @@ var U = (function () {
   }
   function moisLisible(ym) { return fmtMois.format(depuisISO(ym + '-01')); }
 
+  var fmtJourMois = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' });
+
+  // « S35 · 24–30 août ». Le numéro donne un repère stable d'une année sur
+  // l'autre, la plage de dates évite d'avoir à le décoder de tête. Le mois n'est
+  // répété que si la semaine est à cheval sur deux.
+  function semaineLisible(lundi) {
+    var a = depuisISO(lundi), b = depuisISO(ajouterJours(lundi, 6));
+    var debut = a.getMonth() === b.getMonth() ? String(a.getDate()) : fmtJourMois.format(a);
+    return 'S' + numeroSemaine(lundi) + ' · ' + debut + '–' + fmtJourMois.format(b);
+  }
+
   /* --- Argent --- */
 
   var nf2 = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -137,6 +159,22 @@ var U = (function () {
   // suite ne peuvent pas tomber sur la même teinte.
   function couleurIndex(i) { return PALETTE[i % PALETTE.length]; }
 
+  // Les couleurs finissent dans des attributs `style="background:…"` sans être
+  // échappées. Celles saisies via <input type=color> sont sûres, mais celles
+  // qui arrivent d'un fichier importé ou du dépôt ne le sont pas : on n'accepte
+  // qu'une notation hexadécimale, tout le reste retombe sur le gris neutre.
+  function couleur(v) {
+    return /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(v) ? v : '#8b90a0';
+  }
+
+  // Même raison pour les identifiants, eux aussi interpolés tels quels dans des
+  // attributs (`data-id="…"`). Les identifiants légitimes sont en base 36, plus
+  // « : » pour les clés déterministes du journal d'expérience : les données
+  // saines ressortent inchangées, une chaîne piégée ressort inoffensive.
+  function identifiant(v) {
+    return typeof v === 'string' ? v.replace(/[^A-Za-z0-9_:.-]/g, '') : v;
+  }
+
   function couleurAuto(seed) {
     var h = 0;
     for (var i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
@@ -152,7 +190,9 @@ var U = (function () {
     duree: duree, fmtDuree: fmtDuree, fmtHeuresDec: fmtHeuresDec,
     mois: mois, moisCourant: moisCourant, ajouterMois: ajouterMois,
     premierDuMois: premierDuMois, dernierDuMois: dernierDuMois, moisLisible: moisLisible,
+    numeroSemaine: numeroSemaine, semaineLisible: semaineLisible,
     setDevise: setDevise, argent: argent, argentCourt: argentCourt, taux: taux,
-    id: id, esc: esc, pct: pct, couleurAuto: couleurAuto, couleurIndex: couleurIndex
+    id: id, esc: esc, pct: pct, couleurAuto: couleurAuto, couleurIndex: couleurIndex,
+    couleur: couleur, identifiant: identifiant
   };
 })();

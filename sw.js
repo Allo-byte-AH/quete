@@ -14,7 +14,7 @@
  *     version est forcément une nouvelle entrée de cache.
  */
 
-const VERSION = '11';
+const VERSION = '12';
 const CACHE = 'quete-v' + VERSION;
 
 const COQUILLE = [
@@ -29,11 +29,13 @@ const COQUILLE = [
   './js/storage.js?v=' + VERSION,
   './js/state.js?v=' + VERSION,
   './js/synthese.js?v=' + VERSION,
+  './js/jeu.js?v=' + VERSION,
   './js/distant.js?v=' + VERSION,
   './js/sync.js?v=' + VERSION,
   './js/app.js?v=' + VERSION,
   './js/views/dashboard.js?v=' + VERSION,
   './js/views/temps.js?v=' + VERSION,
+  './js/views/quetes.js?v=' + VERSION,
   './js/views/videos.js?v=' + VERSION,
   './js/views/finances.js?v=' + VERSION,
   './js/views/synthese.js?v=' + VERSION,
