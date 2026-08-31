@@ -82,17 +82,127 @@ var Jeu = (function () {
 
   function clefSysteme(s, date) { return 's:' + s.id + ':' + date; }
 
+  // Un système peut être adossé à une mesure : « Pompes ≥ 50 » se valide alors
+  // tout seul dès que le relevé du jour passe le seuil. Rien à cocher, et la
+  // série se tient d'elle-même.
+  function lie(s) { return !!(s && s.mesureId); }
+
   function fait(s, date) {
+    if (lie(s)) {
+      var m = State.mesure(s.mesureId);
+      return !!m && valeurJour(m, date) >= (s.seuil || 1);
+    }
     var id = clefSysteme(s, date);
     return State.xpLog().some(function (l) { return l.id === id; });
   }
 
-  // Renvoie le nouvel état de la case.
+  // Renvoie le nouvel état de la case. Sans effet sur un système adossé à une
+  // mesure : c'est le relevé qui décide, pas la case.
   function basculer(s, date) {
+    if (lie(s)) return fait(s, date);
     var id = clefSysteme(s, date);
     if (fait(s, date)) { State.annulerXP(id); return false; }
     State.logXP(id, { type: 'systeme', refId: s.id, date: date, xp: s.xp || 10 });
     return true;
+  }
+
+  /* --- Mesures ---------------------------------------------------------
+   * Une mesure cumulative additionne les relevés du jour (trois séries de
+   * pompes) ; une mesure de relevé garde le dernier (un poids se constate, il
+   * ne s'additionne pas).
+   */
+
+  function valeurJour(m, date) {
+    var l = State.relevesJour(m.id, date);
+    if (!l.length) return 0;
+    if (m.cumul === false) return l[l.length - 1].valeur;
+    return l.reduce(function (s, r) { return s + (r.valeur || 0); }, 0);
+  }
+
+  function joursEntre(du, au) {
+    return Math.max(1, Math.round((U.depuisISO(au) - U.depuisISO(du)) / 86400000) + 1);
+  }
+
+  function totalPeriode(m, du, au) {
+    if (m.cumul === false) {
+      // Additionner des poids n'aurait aucun sens : on rend la dernière valeur
+      // connue de la période.
+      var l = State.relevesPeriode(m.id, du, au)
+        .sort(function (a, b) { return (a.date + (a.creeLe || '')).localeCompare(b.date + (b.creeLe || '')); });
+      return l.length ? l[l.length - 1].valeur : 0;
+    }
+    return State.relevesPeriode(m.id, du, au)
+      .reduce(function (s, r) { return s + (r.valeur || 0); }, 0);
+  }
+
+  // Moyenne sur TOUS les jours de la période, jours vides compris — la même
+  // convention que la Synthèse, pour qu'un chiffre ne veuille pas dire deux
+  // choses selon l'écran où on le lit.
+  function moyenneJour(m, du, au) {
+    if (m.cumul === false) return totalPeriode(m, du, au);
+    return totalPeriode(m, du, au) / joursEntre(du, au);
+  }
+
+  function joursActifs(m, du, au) {
+    var vus = {};
+    State.relevesPeriode(m.id, du, au).forEach(function (r) { vus[r.date] = true; });
+    return Object.keys(vus).length;
+  }
+
+  function meilleurJour(m, du, au) {
+    var parJour = {};
+    State.relevesPeriode(m.id, du, au).forEach(function (r) {
+      parJour[r.date] = m.cumul === false ? r.valeur : (parJour[r.date] || 0) + (r.valeur || 0);
+    });
+    var best = null;
+    Object.keys(parJour).forEach(function (d) {
+      if (!best || parJour[d] > best.valeur) best = { date: d, valeur: parJour[d] };
+    });
+    return best;
+  }
+
+  function serieMesure(m, du, au) {
+    var pts = [], d = du, garde = 0;
+    while (d <= au && garde++ < 400) {
+      pts.push({ date: d, valeur: valeurJour(m, d) });
+      d = U.ajouterJours(d, 1);
+    }
+    return pts;
+  }
+
+  function fmtMesure(m, v) {
+    if (v === null || v === undefined || !isFinite(v)) return '—';
+    var arrondi = Math.abs(v) >= 100 ? Math.round(v) : Math.round(v * 10) / 10;
+    return String(arrondi).replace('.', ',') + (m.unite ? ' ' + m.unite : '');
+  }
+
+  /* Noter une valeur, puis remettre d'accord l'expérience des systèmes adossés
+   * à cette mesure. L'écriture du journal se fait ici, au moment du geste, et
+   * non pendant un rendu : un effet de bord invisible serait ingérable. */
+  function noter(m, valeur, date) {
+    date = date || U.aujourdhui();
+    var r = State.ajouterReleve(m.id, date, valeur);
+    reconcilier(m.id, date);
+    return r;
+  }
+
+  function retirerReleve(id, mesureId, date) {
+    State.supprimerReleve(id);
+    reconcilier(mesureId, date);
+  }
+
+  function reconcilier(mesureId, date) {
+    actifs().forEach(function (s) {
+      if (s.mesureId !== mesureId) return;
+      var id = clefSysteme(s, date);
+      var atteint = fait(s, date);
+      var deja = State.xpLog().some(function (l) { return l.id === id; });
+      if (atteint && !deja) {
+        State.logXP(id, { type: 'systeme', refId: s.id, date: date, xp: s.xp || 10 });
+      } else if (!atteint && deja) {
+        State.annulerXP(id);
+      }
+    });
   }
 
   function faitsSemaine(s, date) {
@@ -185,10 +295,19 @@ var Jeu = (function () {
     { id: 'videos', nom: 'Vidéos livrées', unite: '' },
     { id: 'entrees', nom: 'Séances enregistrées', unite: '' },
     { id: 'taux', nom: 'Taux horaire réel', unite: '€/h' },
+    { id: 'mesure', nom: 'Une grandeur suivie', unite: '' },
     { id: 'manuel', nom: 'Compteur à la main', unite: '' }
   ];
   function mesure(id) {
     return MESURES.find(function (m) { return m.id === id; }) || MESURES[0];
+  }
+
+  // Intitulé lisible de ce qu'une quête mesure, grandeurs suivies comprises.
+  function libelleMesure(q) {
+    if (q.mesure !== 'mesure') return mesure(q.mesure).nom;
+    var m = State.mesure(q.mesureId);
+    if (!m) return 'grandeur supprimée';
+    return m.nom + (q.agregat === 'moyenne' ? ' — moyenne par jour' : ' — total');
   }
 
   var PERIODES = [
@@ -221,8 +340,23 @@ var Jeu = (function () {
     return true;
   }
 
+  /* Compteur manuel : une valeur PAR PÉRIODE, pas un total qui court.
+   *
+   * Un compteur unique ignorait la période : une quête hebdomadaire une fois
+   * dépassée restait dépassée pour toujours, et rapportait son expérience
+   * chaque semaine sans qu'on ait rien fait. `compteurs` est indexé par la clé
+   * de période, la même qui sert à la réclamation.
+   */
+  function compteurCourant(q) {
+    var c = q.compteurs || {};
+    var v = c[bornes(q).cle];
+    if (v !== undefined) return v;
+    // Ancien champ unique : il n'a de sens que pour un objectif non répété.
+    return q.periode === 'unique' ? (q.compteur || 0) : 0;
+  }
+
   function valeur(q) {
-    if (q.mesure === 'manuel') return q.compteur || 0;
+    if (q.mesure === 'manuel') return compteurCourant(q);
     var b = bornes(q);
     var entrees = State.entreesPeriode(b.du, b.au).filter(function (e) { return retient(q, e); });
 
@@ -235,6 +369,14 @@ var Jeu = (function () {
           return !q.clientId || v.clientId === q.clientId;
         }).length;
       case 'ca': return caPeriode(q, b);
+      case 'mesure': {
+        var m = State.mesure(q.mesureId);
+        if (!m) return 0;
+        // Un objectif unique n'a pas de fin : la moyenne se calcule jusqu'à
+        // aujourd'hui, sinon on diviserait par des milliers de jours à venir.
+        var fin = b.au > U.aujourdhui() ? U.aujourdhui() : b.au;
+        return q.agregat === 'moyenne' ? moyenneJour(m, b.du, fin) : totalPeriode(m, b.du, fin);
+      }
       case 'taux': {
         // Le taux se mesure sur toutes les heures de la période, filtre client
         // compris : un taux calculé sur une sélection d'heures se flatte.
@@ -293,11 +435,15 @@ var Jeu = (function () {
   }
 
   // Formate une valeur mesurée dans l'unité de sa mesure.
-  function fmt(mes, v) {
+  function fmt(mes, v, q) {
     if (mes === 'ca') return U.argentCourt(v);
     if (mes === 'taux') return U.taux(v);
     if (mes === 'heures' || mes === 'heuresFact') {
       return (Math.round(v * 10) / 10).toString().replace('.', ',') + ' h';
+    }
+    if (mes === 'mesure' && q) {
+      var m = State.mesure(q.mesureId);
+      if (m) return fmtMesure(m, v);
     }
     return String(Math.round(v * 10) / 10).replace('.', ',');
   }
@@ -333,10 +479,16 @@ var Jeu = (function () {
 
     actifs: actifs, prevu: prevu, duJour: duJour, fait: fait, basculer: basculer,
     faitsSemaine: faitsSemaine, serie: serie, resteAujourdhui: resteAujourdhui,
-    clefSysteme: clefSysteme,
+    clefSysteme: clefSysteme, lie: lie,
+
+    valeurJour: valeurJour, totalPeriode: totalPeriode, moyenneJour: moyenneJour,
+    joursActifs: joursActifs, meilleurJour: meilleurJour, serieMesure: serieMesure,
+    joursEntre: joursEntre, fmtMesure: fmtMesure, libelleMesure: libelleMesure,
+    noter: noter, retirerReleve: retirerReleve, reconcilier: reconcilier,
 
     enCours: enCours, bornes: bornes, valeur: valeur, progres: progres,
     reclamer: reclamer, clefQuete: clefQuete, fmt: fmt,
+    compteurCourant: compteurCourant,
 
     resume: resume
   };

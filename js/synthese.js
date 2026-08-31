@@ -31,7 +31,11 @@ var Synthese = (function () {
       categories: null,   // null = toutes les heures comptent
       clients: null,      // null = tous
       statuts: null,      // null = tous
-      groupement: 'client'
+      groupement: 'client',
+      // Portée : 'pro' par défaut, pour que noter ses repas ne change rien aux
+      // chiffres professionnels. 'perso' bascule sur le temps personnel seul,
+      // 'tout' montre la journée entière.
+      portee: 'pro'
     };
   }
 
@@ -40,10 +44,20 @@ var Synthese = (function () {
 
   /* --- Périmètre --- */
 
+  // Une entrée est-elle dans la portée demandée ?
+  function dansPortee(f, e) {
+    if (f.portee === 'tout') return true;
+    var perso = State.estPerso(e.categorieId);
+    return f.portee === 'perso' ? perso : !perso;
+  }
+
   function perimetre(f) {
     var cl = ensemble(f.clients), st = ensemble(f.statuts);
 
-    var videos = State.videos().filter(function (v) {
+    // Le chiffre d'affaires n'a rien à faire dans une vue du temps personnel.
+    var avecCA = f.portee !== 'perso';
+
+    var videos = !avecCA ? [] : State.videos().filter(function (v) {
       var dt = State.dateCA(v);
       return dt >= f.du && dt <= f.au && dans(cl, v.clientId) && dans(st, v.statut);
     });
@@ -56,11 +70,12 @@ var Synthese = (function () {
     State.videos().forEach(function (v) { connues[v.id] = true; });
 
     var entrees = State.entries().filter(function (e) {
+      if (!dansPortee(f, e)) return false;
       if (e.videoId && connues[e.videoId]) return !!parId[e.videoId];
       return e.date >= f.du && e.date <= f.au && dans(cl, e.clientId);
     });
 
-    var revenus = State.transactions().filter(function (t) {
+    var revenus = !avecCA ? [] : State.transactions().filter(function (t) {
       return t.type === 'revenu' && t.date >= f.du && t.date <= f.au && dans(cl, t.clientId);
     });
 
@@ -89,6 +104,9 @@ var Synthese = (function () {
       entree: function (e) {
         var v = videoDe(e);
         if (f.groupement === 'video') return v ? v.id : HORS;
+        // Par catégorie, une entrée suit la sienne — jamais celle de sa vidéo :
+        // c'est une analyse du temps, pas du revenu.
+        if (f.groupement === 'categorie') return e.categorieId || SANS;
         if (temporel(f)) return tranche(v ? State.dateCA(v) : e.date);
         // Par client : une entrée rattachée à une vidéo suit le client de la
         // vidéo, pour que ses heures et son CA tombent sur la même ligne.
@@ -96,11 +114,14 @@ var Synthese = (function () {
       },
       video: function (v) {
         if (f.groupement === 'video') return v.id;
+        // Le prix d'une vidéo n'est imputable ni au derush ni au montage :
+        // il va sur une ligne à part, pour que le total reste juste.
+        if (f.groupement === 'categorie') return HORS;
         if (temporel(f)) return tranche(State.dateCA(v));
         return v.clientId || SANS;
       },
       revenu: function (t) {
-        if (f.groupement === 'video') return HORS;
+        if (f.groupement === 'video' || f.groupement === 'categorie') return HORS;
         if (temporel(f)) return tranche(t.date);
         return t.clientId || SANS;
       },
@@ -112,6 +133,11 @@ var Synthese = (function () {
   }
 
   function libelle(f, cle) {
+    if (f.groupement === 'categorie') {
+      if (cle === HORS) return 'Chiffre d\'affaires';
+      if (cle === SANS) return 'Sans catégorie';
+      return State.nomCategorie(cle);
+    }
     if (cle === HORS) return 'Hors livrable';
     if (cle === SANS) return 'Sans client';
     if (f.groupement === 'semaine') return U.semaineLisible(cle);
@@ -122,6 +148,7 @@ var Synthese = (function () {
 
   function couleur(f, cle) {
     if (cle === HORS || cle === SANS) return '#4a4f60';
+    if (f.groupement === 'categorie') return State.couleurCategorie(cle);
     if (f.groupement === 'client') { var c = State.client(cle); return c ? c.couleur : '#4a4f60'; }
     if (f.groupement === 'video') {
       var v = State.video(cle);
@@ -146,10 +173,20 @@ var Synthese = (function () {
     if (c && c.facturable) s.heuresFacturables += m;
   }
 
-  function finir(s) {
+  // Nombre de jours de la période, bornes comprises. Les moyennes se calculent
+  // dessus, jours vides inclus : une habitude pratiquée trois fois en un mois
+  // doit se lire comme telle, pas comme « une heure par séance ».
+  function nbJours(f) {
+    var n = Math.round((U.depuisISO(f.au) - U.depuisISO(f.du)) / 86400000) + 1;
+    return Math.max(1, n);
+  }
+
+  function finir(s, jours) {
     s.taux = s.heuresComptees > 0 ? s.ca / (s.heuresComptees / 60) : null;
     s.tauxReference = s.heures > 0 ? s.ca / (s.heures / 60) : null;
     s.partFacturable = s.heures > 0 ? s.heuresFacturables / s.heures : null;
+    s.moyJour = jours > 0 ? s.heures / jours : null;
+    s.moySeance = s.nbEntrees > 0 ? s.heures / s.nbEntrees : null;
     return s;
   }
 
@@ -198,21 +235,32 @@ var Synthese = (function () {
       sous(l, k.sousRevenu(t)).ca += t.montant;
     });
 
+    var jours = nbJours(f);
+
     var resultat = ordre.map(function (cle) {
       var l = lignes[cle];
       l.libelle = libelle(f, cle);
       l.couleur = couleur(f, cle);
       l.sousLignes = l.ordreSous.map(function (sc) {
-        var s = finir(l.sous[sc]);
+        var s = finir(l.sous[sc], jours);
         s.libelle = sc === HORS ? 'Hors livrable' : (State.titreVideo(sc) || '(vidéo supprimée)');
         return s;
       }).sort(function (a, b) { return b.ca - a.ca || b.heures - a.heures; });
       delete l.sous; delete l.ordreSous;
-      return finir(l);
+      return finir(l, jours);
     });
 
+    finir(total, jours);
+    total.jours = jours;
+    total.part = total.heures > 0 ? 1 : null;
+
+    // La part se calcule une fois le total connu.
+    function part(s) { s.part = total.heures > 0 ? s.heures / total.heures : null; }
+    resultat.forEach(function (l) { part(l); l.sousLignes.forEach(part); });
+
     return {
-      total: finir(total),
+      total: total,
+      jours: jours,
       lignes: trier(resultat, f),
       serie: serie(f, p, compte)
     };
@@ -222,6 +270,8 @@ var Synthese = (function () {
     // Les identifiants temporels (« 2026-08 », « 2026-08-24 ») sont
     // chronologiques par construction, contrairement à leurs libellés.
     if (temporel(f)) return l.sort(function (a, b) { return a.id.localeCompare(b.id); });
+    // Par catégorie, le taux ne veut rien dire : on trie sur le temps.
+    if (f.groupement === 'categorie') return l.sort(function (a, b) { return b.heures - a.heures; });
     return l.sort(function (a, b) {
       if (a.taux === null && b.taux === null) return b.heures - a.heures;
       if (a.taux === null) return 1;
@@ -268,7 +318,7 @@ var Synthese = (function () {
     return {
       granularite: gran,
       points: ordre.sort().map(function (cle) {
-        var b = finir(seaux[cle]);
+        var b = finir(seaux[cle], gran === 'semaine' ? 7 : 30);
         b.libelle = gran === 'semaine' ? U.dateLisible(cle) : U.moisLisible(cle);
         return b;
       })
@@ -281,6 +331,7 @@ var Synthese = (function () {
     perimetre: perimetre,
     calculer: calculer,
     granularite: granularite,
-    temporel: temporel
+    temporel: temporel,
+    nbJours: nbJours
   };
 })();

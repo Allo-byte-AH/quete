@@ -63,23 +63,38 @@ var VueReglages = (function () {
     return m ? U.fmtHeuresDec(m) + ' au total' : '—';
   }
 
+  function optionsNature(sel) {
+    return State.NATURES.map(function (n) {
+      return '<option value="' + n.id + '"' + (n.id === sel ? ' selected' : '') + '>' + U.esc(n.nom) + '</option>';
+    }).join('');
+  }
+
   function categories() {
+    var perso = State.categories().filter(function (c) { return c.nature === 'perso'; }).length;
     return '<div class="carte">' +
-      '<div class="carte-titre">Catégories <span class="muted">— « facturable » = temps refacturé à un client</span></div>' +
+      '<div class="carte-titre">Catégories <span class="muted">— la nature décide de ce qui entre dans tes chiffres</span></div>' +
       '<div class="lignes">' + State.categories().map(function (c) {
         return '<div class="ligne' + (c.archive ? ' archive' : '') + '">' +
           '<input type="color" value="' + c.couleur + '" data-change="reg.catCouleur" data-id="' + c.id + '" class="pick">' +
           '<input type="text" value="' + U.esc(c.nom) + '" data-change="reg.catNom" data-id="' + c.id + '" class="inline-txt">' +
-          '<label class="case"><input type="checkbox"' + (c.facturable ? ' checked' : '') +
-            ' data-change="reg.catFact" data-id="' + c.id + '"> facturable</label>' +
+          '<select class="nature-sel nat-' + c.nature + '" data-change="reg.catNature" data-id="' + c.id + '">' +
+            optionsNature(c.nature) + '</select>' +
           '<div class="l-actions">' +
             '<button class="btn mini" data-action="reg.catArchive" data-id="' + c.id + '">' + (c.archive ? 'Réactiver' : 'Archiver') + '</button>' +
           '</div></div>';
       }).join('') + '</div>' +
       '<form class="ajout" data-submit="reg.ajoutCat">' +
         '<input type="text" name="nom" placeholder="Nouvelle catégorie" required>' +
+        '<select name="nature">' + optionsNature('pro') + '</select>' +
         '<button class="btn primaire" type="submit">Ajouter</button>' +
-      '</form></div>';
+      '</form>' +
+      '<p class="aide"><strong>Facturable</strong> : refacturé à un client. ' +
+      '<strong>Pro, non facturable</strong> : admin, prospection, formation — ces heures font baisser ton taux horaire réel, ' +
+      'et c\'est voulu, c\'est du travail non payé. ' +
+      '<strong>Personnel</strong> : repas, sport, sommeil — exclu de tous les chiffres professionnels, ' +
+      'visible dans la Synthèse en portée « Perso ».' +
+      (perso ? ' <span class="muted">' + perso + ' catégorie' + (perso > 1 ? 's' : '') + ' personnelle' + (perso > 1 ? 's' : '') + '.</span>' : '') +
+      '</p></div>';
   }
 
   function donnees() {
@@ -281,7 +296,7 @@ var VueReglages = (function () {
   };
 
   App.actions['reg.ajoutCat'] = function (f) {
-    State.ajouterCategorie(f.nom.value.trim());
+    State.ajouterCategorie(f.nom.value.trim(), f.nature.value);
     App.render();
   };
   App.actions['reg.catNom'] = function (el) {
@@ -291,8 +306,9 @@ var VueReglages = (function () {
     State.modifier(State.categorie(el.dataset.id), { couleur: el.value });
     App.render();
   };
-  App.actions['reg.catFact'] = function (el) {
-    State.modifier(State.categorie(el.dataset.id), { facturable: el.checked });
+  App.actions['reg.catNature'] = function (el) {
+    State.definirNature(State.categorie(el.dataset.id), el.value);
+    App.render();
   };
   App.actions['reg.catArchive'] = function (el) {
     var c = State.categorie(el.dataset.id);

@@ -117,7 +117,9 @@ var App = {
 
   renderHud: function () {
     var auj = U.aujourdhui();
-    var m = State.totalMinutes(State.entreesDuJour(auj));
+    // L'objectif du jour est un objectif de travail : le temps personnel n'y
+    // entre pas, sinon un long déjeuner suffirait à l'atteindre.
+    var m = State.totalMinutes(State.sansPerso(State.entreesDuJour(auj)));
     var cible = State.d.settings.heuresCibleJour * 60;
     var c = State.d.chrono;
     document.getElementById('hud').innerHTML =

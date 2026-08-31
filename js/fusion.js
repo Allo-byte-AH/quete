@@ -22,7 +22,8 @@ var Fusion = (function () {
   // oublier une ne provoque aucune erreur : elle disparaît simplement à la
   // première fusion. Un test vérifie que cette liste couvre bien l'état.
   var COLLECTIONS = ['entries', 'videos', 'clients', 'categories',
-                     'transactions', 'categoriesFin', 'quetes', 'systemes', 'xpLog'];
+                     'transactions', 'categoriesFin', 'quetes', 'systemes', 'xpLog',
+                     'mesures', 'releves'];
 
   var EPOQUE = '2000-01-01T00:00:00.000Z';
 

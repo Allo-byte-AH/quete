@@ -6,9 +6,30 @@ var State = (function () {
   var d = null;
   var timer = null;
 
+  /* Nature d'une catégorie — trois états, et non deux.
+   *
+   * « facturable / non facturable » ne suffisait plus dès lors qu'on note aussi
+   * ses repas ou son sport. Le taux horaire réel divise le chiffre d'affaires
+   * par TOUTES les heures notées : sa valeur vient de ce qu'il compte
+   * l'administratif et la prospection, c'est-à-dire du travail non payé.
+   * Dormir n'est pas du travail non payé — sans troisième nature, une semaine
+   * normale passait de 43 €/h à 17 €/h pour la seule raison qu'on avait noté
+   * ses nuits.
+   *
+   * `facturable` est conservé, mais comme simple reflet de `nature` : les
+   * anciens exports restent lisibles, et les deux ne peuvent pas diverger
+   * puisque migrer() le recalcule à chaque chargement.
+   */
+  var NATURES = [
+    { id: 'facturable', nom: 'Facturable', aide: 'refacturé à un client' },
+    { id: 'pro', nom: 'Pro, non facturable', aide: 'admin, prospection, formation' },
+    { id: 'perso', nom: 'Personnel', aide: 'exclu de tous les chiffres professionnels' }
+  ];
+
   function defaut() {
     var cat = function (id, nom, couleur, facturable) {
-      return { id: id, nom: nom, couleur: couleur, facturable: facturable, archive: false };
+      return { id: id, nom: nom, couleur: couleur, facturable: facturable,
+               nature: facturable ? 'facturable' : 'pro', archive: false };
     };
     return {
       version: 2,
@@ -43,10 +64,16 @@ var State = (function () {
       entries: [],
       transactions: [],
       chrono: null,
-      // Réservé aux phases suivantes
       quetes: [],
       systemes: [],
-      xpLog: []
+      xpLog: [],
+      // Grandeurs chiffrées suivies au jour le jour (pompes, poids, pages lues)
+      // et leurs relevés. Un relevé par saisie, jamais un compteur par jour :
+      // trois séries de pompes font trois enregistrements, et la journée est
+      // leur somme. C'est ce qui permet à deux appareils hors ligne de noter
+      // chacun les leurs sans que l'un écrase l'autre.
+      mesures: [],
+      releves: []
     };
   }
 
@@ -63,7 +90,7 @@ var State = (function () {
    * déterministes du journal d'expérience : ce jeu de caractères suffit, et
    * les données saines en ressortent inchangées.
    */
-  var CHAMPS_ID = ['id', 'refId', 'clientId', 'categorieId', 'videoId', 'categorieFinId'];
+  var CHAMPS_ID = ['id', 'refId', 'clientId', 'categorieId', 'videoId', 'categorieFinId', 'mesureId'];
 
   function assainir(x) {
     Fusion.COLLECTIONS.forEach(function (nom) {
@@ -98,6 +125,19 @@ var State = (function () {
       });
       x.version = 2;
     }
+
+    // Nature des catégories : déduite de l'ancien booléen quand elle manque,
+    // puis `facturable` est recalculé depuis elle. Les deux champs ne peuvent
+    // donc jamais diverger, même après une fusion avec un appareil resté sur
+    // une version antérieure.
+    (x.categories || []).forEach(function (c) {
+      if (!c || typeof c !== 'object') return;
+      if (!c.nature || !NATURES.some(function (n) { return n.id === c.nature; })) {
+        c.nature = c.facturable ? 'facturable' : 'pro';
+      }
+      c.facturable = (c.nature === 'facturable');
+    });
+
     return assainir(x);
   }
 
@@ -149,6 +189,8 @@ var State = (function () {
   function systemes() { return vivants(d.systemes); }
   function quetes() { return vivants(d.quetes); }
   function xpLog() { return vivants(d.xpLog); }
+  function mesures() { return vivants(d.mesures); }
+  function releves() { return vivants(d.releves); }
 
   async function charger() {
     var brut = null;
@@ -226,6 +268,22 @@ var State = (function () {
   function nomCategorie(id) { var c = categorie(id); return c ? c.nom : 'Sans catégorie'; }
   function couleurCategorie(id) { var c = categorie(id); return c ? c.couleur : '#8b90a0'; }
 
+  function estPerso(categorieId) {
+    var c = categorie(categorieId);
+    return !!(c && c.nature === 'perso');
+  }
+
+  // Le temps personnel n'entre dans aucun chiffre professionnel. Toute vue qui
+  // parle de travail — objectif du jour, taux horaire, part facturable — passe
+  // par ici. Le journal de la vue Temps, lui, montre la journée entière : c'est
+  // un carnet, pas un indicateur.
+  function sansPerso(entrees) {
+    return (entrees || []).filter(function (e) { return !estPerso(e.categorieId); });
+  }
+  function seulementPerso(entrees) {
+    return (entrees || []).filter(function (e) { return estPerso(e.categorieId); });
+  }
+
   function entreesDuJour(date) {
     return entries().filter(function (e) { return e.date === date; })
       .sort(function (a, b) { return (U.parseHM(a.debut) || 0) - (U.parseHM(b.debut) || 0); });
@@ -279,12 +337,21 @@ var State = (function () {
     sauver();
     return c;
   }
-  function ajouterCategorie(nom) {
+  function ajouterCategorie(nom, nature) {
+    nature = nature || 'pro';
     var c = marquer({ id: U.id(), nom: nom, couleur: U.couleurIndex(categories().length),
-                      facturable: false, archive: false, creeLe: new Date().toISOString() });
+                      nature: nature, facturable: nature === 'facturable',
+                      archive: false, creeLe: new Date().toISOString() });
     d.categories.push(c);
     sauver();
     return c;
+  }
+
+  // Change la nature et maintient le reflet `facturable` en même temps :
+  // les deux champs ne doivent jamais être écrits séparément.
+  function definirNature(cat, nature) {
+    if (!cat) return null;
+    return modifier(cat, { nature: nature, facturable: nature === 'facturable' });
   }
 
   /* --- Chrono ---
@@ -344,6 +411,41 @@ var State = (function () {
 
   function chronoEcoule() {
     return d.chrono ? Math.floor((Date.now() - d.chrono.ts) / 60000) : 0;
+  }
+
+  /* Régler après coup l'heure de départ du chrono.
+   *
+   * Le cas courant : on se met au travail et on pense au chrono vingt minutes
+   * plus tard. Relancer à l'heure actuelle perdrait ces vingt minutes.
+   *
+   * `debut` et `date` sont toujours redérivés de `ts`, jamais calculés à part :
+   * c'est ce qui rend le passage de minuit correct sans cas particulier.
+   */
+  function poserDepart(c, quand) {
+    c.ts = quand.getTime();
+    c.debut = U.pad(quand.getHours()) + ':' + U.pad(quand.getMinutes());
+    c.date = U.iso(quand);
+    toucherSingleton('chrono');
+    sauver();
+    return c;
+  }
+
+  function ajusterChrono(minutesEnArriere) {
+    if (!d.chrono) return null;
+    return poserDepart(d.chrono, new Date(d.chrono.ts - minutesEnArriere * 60000));
+  }
+
+  // L'heure saisie est comprise comme sa dernière occurrence : à 00:10, taper
+  // 23:50 désigne hier soir, et non ce soir.
+  function definirDebutChrono(hm) {
+    if (!d.chrono) return null;
+    var min = U.parseHM(hm);
+    if (min === null) return null;
+    var maintenant = new Date();
+    var q = new Date(maintenant);
+    q.setHours(Math.floor(min / 60), min % 60, 0, 0);
+    if (q.getTime() > maintenant.getTime()) q.setDate(q.getDate() - 1);
+    return poserDepart(d.chrono, q);
   }
 
   // Décrit une tâche en une ligne, pour les messages de relance.
@@ -496,10 +598,10 @@ var State = (function () {
   }
   function ca(du, au) { return caVideos(du, au) + revenusDivers(du, au); }
 
-  // Le chiffre honnête : CA divisé par TOUTES les heures travaillées,
-  // administratif et prospection compris.
+  // Le chiffre honnête : CA divisé par toutes les heures TRAVAILLÉES,
+  // administratif et prospection compris — mais temps personnel exclu.
   function tauxReel(du, au) {
-    var m = totalMinutes(entreesPeriode(du, au));
+    var m = totalMinutes(sansPerso(entreesPeriode(du, au)));
     return m > 0 ? ca(du, au) / (m / 60) : null;
   }
   function tauxFacturable(du, au) {
@@ -508,7 +610,7 @@ var State = (function () {
   }
 
   function minutesClient(id) {
-    return totalMinutes(entries().filter(function (e) { return e.clientId === id; }));
+    return totalMinutes(sansPerso(entries().filter(function (e) { return e.clientId === id; })));
   }
   function caClient(id) {
     return videos().filter(function (v) { return v.clientId === id; })
@@ -603,14 +705,58 @@ var State = (function () {
   }
   function annulerXP(id) { return supprimerEnreg('xpLog', id); }
 
+  /* --- Mesures et relevés --- */
+
+  function mesure(id) {
+    if (!id) return null;
+    var l = mesures();
+    for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i];
+    return null;
+  }
+
+  function ajouterMesure(m) {
+    m.id = U.id();
+    m.creeLe = new Date().toISOString();
+    marquer(m);
+    d.mesures.push(m);
+    sauver();
+    return m;
+  }
+
+  // Un relevé par saisie. L'identifiant est aléatoire, jamais déterministe :
+  // deux séries de pompes le même jour doivent coexister, pas se remplacer.
+  function ajouterReleve(mesureId, date, valeur) {
+    var r = marquer({
+      id: U.id(), mesureId: mesureId, date: date, valeur: Number(valeur),
+      creeLe: new Date().toISOString()
+    });
+    d.releves.push(r);
+    sauver();
+    return r;
+  }
+  function supprimerReleve(id) { return supprimerEnreg('releves', id); }
+
+  function relevesJour(mesureId, date) {
+    return releves().filter(function (r) { return r.mesureId === mesureId && r.date === date; })
+      .sort(function (a, b) { return (a.creeLe || '').localeCompare(b.creeLe || ''); });
+  }
+  function relevesPeriode(mesureId, du, au) {
+    return releves().filter(function (r) {
+      return r.mesureId === mesureId && r.date >= du && r.date <= au;
+    });
+  }
+
   return {
     get d() { return d; },
-    STATUTS: STATUTS, statut: statut,
+    STATUTS: STATUTS, statut: statut, NATURES: NATURES,
+    estPerso: estPerso, sansPerso: sansPerso, seulementPerso: seulementPerso,
+    definirNature: definirNature,
 
     // Lectures filtrées : jamais de pierre tombale au-delà de cette frontière.
     entries: entries, videos: videos, clients: clients,
     categories: categories, transactions: transactions, categoriesFin: categoriesFin,
     systemes: systemes, quetes: quetes, xpLog: xpLog,
+    mesures: mesures, releves: releves,
     // Écritures horodatées.
     marquer: marquer, modifier: modifier, supprimerEnreg: supprimerEnreg,
     toucherSingleton: toucherSingleton, fusionnerAvec: fusionnerAvec,
@@ -640,6 +786,12 @@ var State = (function () {
     ajouterTransaction: ajouterTransaction, supprimerTransaction: supprimerTransaction,
 
     ajouterSysteme: ajouterSysteme, ajouterQuete: ajouterQuete,
-    logXP: logXP, annulerXP: annulerXP
+    logXP: logXP, annulerXP: annulerXP,
+
+    mesure: mesure, ajouterMesure: ajouterMesure,
+    ajouterReleve: ajouterReleve, supprimerReleve: supprimerReleve,
+    relevesJour: relevesJour, relevesPeriode: relevesPeriode,
+
+    ajusterChrono: ajusterChrono, definirDebutChrono: definirDebutChrono
   };
 })();

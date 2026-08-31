@@ -28,7 +28,7 @@ var VueDashboard = (function () {
     var max = 1;
     for (var i = 6; i >= 0; i--) {
       var d = U.ajouterJours(U.aujourdhui(), -i);
-      var m = State.totalMinutes(State.entreesDuJour(d));
+      var m = State.totalMinutes(State.sansPerso(State.entreesDuJour(d)));
       max = Math.max(max, m);
       jours.push({ date: d, minutes: m });
     }
@@ -90,9 +90,12 @@ var VueDashboard = (function () {
 
     var auj = U.aujourdhui();
     var lundi = U.debutSemaine(auj);
-    var eJour = State.entreesDuJour(auj);
-    var eSem = State.entreesPeriode(lundi, auj);
-    var eMois = State.entreesPeriode(U.debutMois(auj), auj);
+    // Le tableau de bord parle de travail. Le temps personnel a sa propre
+    // ligne plus bas, et sa propre vue dans la Synthèse.
+    var eJour = State.sansPerso(State.entreesDuJour(auj));
+    var eSem = State.sansPerso(State.entreesPeriode(lundi, auj));
+    var eMois = State.sansPerso(State.entreesPeriode(U.debutMois(auj), auj));
+    var persoSem = State.seulementPerso(State.entreesPeriode(lundi, auj));
 
     var tJour = State.totalMinutes(eJour);
     var tSem = State.totalMinutes(eSem);
@@ -130,9 +133,22 @@ var VueDashboard = (function () {
       '</div>' +
 
       '<div class="carte">' +
-        '<div class="carte-titre">7 derniers jours</div>' +
+        '<div class="carte-titre">7 derniers jours <span class="muted">— travail seul</span></div>' +
         septJours() +
       '</div>' +
+
+      (persoSem.length
+        ? '<div class="carte">' +
+            '<div class="carte-titre">Temps personnel <span class="muted">— cette semaine</span>' +
+              '<button class="btn mini" data-action="dash.perso">Analyser →</button></div>' +
+            barres(State.repartition(persoSem, 'categorieId'), State.nomCategorie, State.couleurCategorie,
+              function (id) {
+                var m = State.repartition(persoSem, 'categorieId').find(function (x) { return x.id === id; });
+                var jours = 7;
+                return m ? U.fmtDuree(m.minutes / jours) + '/j' : '—';
+              }) +
+          '</div>'
+        : '') +
 
       '<div class="colonnes">' +
         '<div class="carte">' +
@@ -165,6 +181,11 @@ var VueDashboard = (function () {
         }).join('') + '</div>' +
       '</div>';
   }
+
+  App.actions['dash.perso'] = function () {
+    VueSynthese.portee('perso');
+    App.aller('synthese');
+  };
 
   App.actions['dash.jour'] = function (el) {
     VueTemps.date = el.dataset.date;

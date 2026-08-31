@@ -13,6 +13,7 @@
 var VueQuetes = (function () {
   var formSysteme = false;
   var formQuete = false;
+  var formMesure = false;
   var gestion = false;
 
   /* --- Modèles de départ ---
@@ -31,6 +32,12 @@ var VueQuetes = (function () {
       { titre: '25 h facturables cette semaine', mesure: 'heuresFact', cible: 25, periode: 'semaine', xp: 40 },
       { titre: 'Livrer 20 vidéos ce mois', mesure: 'videos', cible: 20, periode: 'mois', xp: 60 },
       { titre: 'Tenir 45 €/h ce mois', mesure: 'taux', cible: 45, periode: 'mois', xp: 80 }
+    ],
+    mesures: [
+      { nom: 'Pompes', unite: 'reps', cumul: true },
+      { nom: 'Tractions', unite: 'reps', cumul: true },
+      { nom: 'Pages lues', unite: 'pages', cumul: true },
+      { nom: 'Poids', unite: 'kg', cumul: false }
     ]
   };
 
@@ -77,12 +84,16 @@ var VueQuetes = (function () {
   }
 
   function grille(s, jours) {
+    var auto = Jeu.lie(s);
     return '<div class="sys-grille">' + jours.map(function (d) {
       var classe = !Jeu.prevu(s, d) ? 'hors' : (Jeu.fait(s, d) ? 'plein' : 'creux');
+      var style = classe === 'plein' ? 'background:' + s.couleur + ';border-color:' + s.couleur : '';
+      var titre = U.esc(U.dateLisible(d));
+      // Rien à rattraper à la main sur un système adossé : on corrige le relevé,
+      // pas la case.
+      if (auto) return '<div class="sys-pt ' + classe + ' fige" title="' + titre + '" style="' + style + '"></div>';
       return '<button class="sys-pt ' + classe + '" data-action="jeu.basculer" ' +
-        'data-id="' + s.id + '" data-date="' + d + '" ' +
-        'title="' + U.esc(U.dateLisible(d)) + '" ' +
-        'style="' + (classe === 'plein' ? 'background:' + s.couleur + ';border-color:' + s.couleur : '') + '"></button>';
+        'data-id="' + s.id + '" data-date="' + d + '" title="' + titre + '" style="' + style + '"></button>';
     }).join('') + '</div>';
   }
 
@@ -94,15 +105,27 @@ var VueQuetes = (function () {
       ? Jeu.faitsSemaine(s, auj) + ' / ' + (s.cible || 1) + ' cette semaine'
       : null;
 
+    // Un système adossé à une mesure n'a pas de case à cocher : c'est le relevé
+    // du jour qui décide, et le proposer inviterait à un geste sans effet.
+    var m = Jeu.lie(s) ? State.mesure(s.mesureId) : null;
+    var auto = m
+      ? m.nom + ' ≥ ' + Jeu.fmtMesure(m, s.seuil || 1) +
+        ' · ' + Jeu.fmtMesure(m, Jeu.valeurJour(m, auj)) + " aujourd'hui"
+      : null;
+
     return '<div class="sys-ligne' + (coche ? ' coche' : '') + '">' +
-      '<button class="sys-case' + (coche ? ' ok' : '') + '" data-action="jeu.basculer" ' +
-        'data-id="' + s.id + '" data-date="' + auj + '" ' +
-        'style="' + (coche ? 'background:' + s.couleur + ';border-color:' + s.couleur : 'border-color:' + s.couleur) + '" ' +
-        'title="Valider pour aujourd\'hui">' + (coche ? '✓' : '') + '</button>' +
+      (m
+        ? '<div class="sys-case auto' + (coche ? ' ok' : '') + '" ' +
+            'style="' + (coche ? 'background:' + s.couleur + ';border-color:' + s.couleur : 'border-color:' + s.couleur) + '" ' +
+            'title="Validé automatiquement par la mesure « ' + U.esc(m.nom) + ' »">' + (coche ? '✓' : '◦') + '</div>'
+        : '<button class="sys-case' + (coche ? ' ok' : '') + '" data-action="jeu.basculer" ' +
+            'data-id="' + s.id + '" data-date="' + auj + '" ' +
+            'style="' + (coche ? 'background:' + s.couleur + ';border-color:' + s.couleur : 'border-color:' + s.couleur) + '" ' +
+            'title="Valider pour aujourd\'hui">' + (coche ? '✓' : '') + '</button>') +
       '<div class="sys-corps">' +
         '<div class="sys-nom">' + U.esc(s.nom) + '</div>' +
-        '<div class="sys-sous muted">' + rythme(s) + ' · +' + (s.xp || 10) + ' XP' +
-          (reste ? ' · ' + reste : '') + '</div>' +
+        '<div class="sys-sous muted">' + (auto || (rythme(s) + ' · +' + (s.xp || 10) + ' XP' +
+          (reste ? ' · ' + reste : ''))) + '</div>' +
       '</div>' +
       (serie > 1
         ? '<div class="sys-serie" title="Série en cours">🔥 ' + serie + uniteSerie + '</div>'
@@ -161,11 +184,109 @@ var VueQuetes = (function () {
         '<label class="champ c-court bloc-cible" hidden><span>Fois par semaine</span>' +
           '<input type="number" name="cible" value="3" min="1" max="21"></label>' +
       '</div>' +
+      (State.mesures().length
+        ? '<div class="grille-form" style="margin-top:10px">' +
+            '<label class="champ c-cli"><span>Adosser à une mesure</span>' +
+              '<select name="mesureId" data-change="jeu.adosserChange">' +
+                '<option value="">Non — je coche à la main</option>' + optionsMesures() +
+              '</select></label>' +
+            '<label class="champ c-court bloc-seuil" hidden><span>Seuil par jour</span>' +
+              '<input type="number" name="seuil" value="1" min="0" step="any"></label>' +
+          '</div>'
+        : '') +
       '<div class="form-actions">' +
         '<button type="submit" class="btn primaire">Créer</button>' +
         '<button type="button" class="btn" data-action="jeu.fermerSysteme">Annuler</button>' +
-        '<span class="aide">Une habitude cochée rapporte son expérience une fois par jour.</span>' +
+        '<span class="aide">Adossée à une mesure, l\'habitude se valide toute seule dès que le seuil du jour est franchi.</span>' +
       '</div></form>';
+  }
+
+  /* --- Mesures ---
+   * Une grandeur chiffrée notée au jour le jour. La saisie doit tenir en un
+   * geste : un champ, un bouton. Tout le reste — moyennes, séries, objectifs —
+   * se déduit des relevés.
+   */
+
+  function carteMesures() {
+    var l = State.mesures().filter(function (m) { return !m.archive; });
+    var auj = U.aujourdhui();
+    var du = U.premierDuMois(U.moisCourant());
+    var jours = septDerniers();
+
+    var corps = l.length ? l.map(function (m) {
+      var valeurs = jours.map(function (d) { return Jeu.valeurJour(m, d); });
+      var plafond = Math.max.apply(null, valeurs.concat([1]));
+      var total = Jeu.totalPeriode(m, du, auj);
+      var moy = Jeu.moyenneJour(m, du, auj);
+      var best = Jeu.meilleurJour(m, du, auj);
+      var actifs = Jeu.joursActifs(m, du, auj);
+
+      var stats = [];
+      if (m.cumul === false) {
+        stats.push('dernier relevé ' + Jeu.fmtMesure(m, total));
+        stats.push(actifs + ' jour' + (actifs > 1 ? 's' : '') + ' noté' + (actifs > 1 ? 's' : '') + ' ce mois');
+      } else {
+        stats.push(Jeu.fmtMesure(m, total) + ' ce mois');
+        stats.push(Jeu.fmtMesure(m, moy) + ' par jour');
+        if (best) stats.push('record ' + Jeu.fmtMesure(m, best.valeur) + ' le ' + U.dateLisible(best.date));
+      }
+
+      return '<div class="mes-ligne">' +
+        '<div class="mes-tete">' +
+          '<span class="pastille" style="background:' + m.couleur + '"></span>' +
+          '<span class="mes-nom">' + U.esc(m.nom) + '</span>' +
+          '<span class="mes-auj">' + Jeu.fmtMesure(m, Jeu.valeurJour(m, auj)) + " aujourd'hui" + '</span>' +
+          '<form class="mes-saisie" data-submit="jeu.noter" data-id="' + m.id + '">' +
+            '<input type="number" name="valeur" step="any" inputmode="decimal" ' +
+              'placeholder="' + (m.cumul === false ? 'valeur' : '+ combien') + '" required>' +
+            '<button class="btn mini primaire" type="submit">' + (m.cumul === false ? 'Noter' : '+') + '</button>' +
+          '</form>' +
+        '</div>' +
+        '<div class="mes-sous muted">' + U.esc(stats.join(' · ')) + '</div>' +
+        '<div class="mes-grille">' + jours.map(function (d, i) {
+          var v = valeurs[i];
+          return '<div class="mes-col" title="' + U.esc(U.dateLisible(d)) + ' — ' + Jeu.fmtMesure(m, v) + '">' +
+            '<div class="mes-barre"><div class="mes-plein" style="height:' + (v / plafond * 100) + '%;' +
+              'background:' + m.couleur + '"></div></div>' +
+            '<span>' + U.initialeJour(d) + '</span>' +
+            '</div>';
+        }).join('') + '</div>' +
+        '</div>';
+    }).join('') : '<div class="vide">Aucune grandeur suivie.</div>';
+
+    return '<div class="carte">' +
+      '<div class="carte-titre">Mesures <span class="muted">— sept derniers jours</span>' +
+        '<button class="btn mini" data-action="jeu.formMesure">+ Mesure</button></div>' +
+      (formMesure ? formulaireMesure() : '') +
+      corps +
+      '</div>';
+  }
+
+  function formulaireMesure() {
+    return '<form class="form-creation carte" data-submit="jeu.creerMesure">' +
+      '<div class="grille-form">' +
+        '<label class="champ c-cat"><span>Nom</span>' +
+          '<input type="text" name="nom" required placeholder="ex. pompes, tractions, poids" autofocus></label>' +
+        '<label class="champ c-court"><span>Unité</span>' +
+          '<input type="text" name="unite" maxlength="12" placeholder="reps, kg, pages"></label>' +
+        '<label class="champ c-cli"><span>Type</span>' +
+          '<select name="cumul">' +
+            '<option value="1">Cumulatif — les saisies du jour s\'additionnent</option>' +
+            '<option value="0">Relevé — la dernière valeur du jour fait foi</option>' +
+          '</select></label>' +
+      '</div>' +
+      '<div class="form-actions">' +
+        '<button type="submit" class="btn primaire">Créer</button>' +
+        '<button type="button" class="btn" data-action="jeu.fermerMesure">Annuler</button>' +
+        '<span class="aide">Cumulatif pour des pompes ou des pages lues, relevé pour un poids.</span>' +
+      '</div></form>';
+  }
+
+  function optionsMesures(sel) {
+    return State.mesures().filter(function (m) { return !m.archive; })
+      .map(function (m) {
+        return '<option value="' + m.id + '"' + (m.id === sel ? ' selected' : '') + '>' + U.esc(m.nom) + '</option>';
+      }).join('');
   }
 
   /* --- Quêtes --- */
@@ -173,7 +294,6 @@ var VueQuetes = (function () {
   function ligneQuete(q) {
     var p = Jeu.progres(q);
     var b = Jeu.bornes(q);
-    var mes = Jeu.mesure(q.mesure);
     var etat = p.reclamee ? ' gagnee' : (p.atteint ? ' prete' : '');
 
     var pied;
@@ -197,13 +317,13 @@ var VueQuetes = (function () {
         '<div class="qu-titre">' + U.esc(q.titre) +
           (filtres.length ? '<span class="l-client">' + U.esc(filtres.join(' · ')) + '</span>' : '') +
         '</div>' +
-        '<div class="qu-val"><strong>' + Jeu.fmt(q.mesure, p.valeur) + '</strong>' +
-          '<span class="muted"> / ' + Jeu.fmt(q.mesure, p.cible) + '</span></div>' +
+        '<div class="qu-val"><strong>' + Jeu.fmt(q.mesure, p.valeur, q) + '</strong>' +
+          '<span class="muted"> / ' + Jeu.fmt(q.mesure, p.cible, q) + '</span></div>' +
       '</div>' +
       '<div class="barre"><div class="barre-plein' + (p.atteint ? ' atteint' : '') +
         '" style="width:' + p.pct + '%"></div></div>' +
       '<div class="qu-pied">' +
-        '<span class="muted">' + U.esc(mes.nom.toLowerCase()) + ' · ' + U.esc(b.libelle) + '</span>' +
+        '<span class="muted">' + U.esc(Jeu.libelleMesure(q).toLowerCase()) + ' · ' + U.esc(b.libelle) + '</span>' +
         manuel + pied +
       '</div>' +
       '</div>';
@@ -235,11 +355,22 @@ var VueQuetes = (function () {
         '<label class="champ c-cat"><span>Intitulé</span>' +
           '<input type="text" name="titre" required placeholder="ex. 25 h facturables cette semaine" autofocus></label>' +
         '<label class="champ c-cli"><span>Ce qu\'on mesure</span>' +
-          '<select name="mesure">' + Jeu.MESURES.map(function (m) {
+          '<select name="mesure" data-change="jeu.mesureChange">' + Jeu.MESURES.map(function (m) {
+            // Sans grandeur suivie, l'option correspondante n'aurait rien à viser.
+            if (m.id === 'mesure' && !State.mesures().length) return '';
             return '<option value="' + m.id + '">' + U.esc(m.nom) + '</option>';
           }).join('') + '</select></label>' +
         '<label class="champ c-court"><span>Objectif</span>' +
           '<input type="number" name="cible" required min="0" step="any" placeholder="25"></label>' +
+      '</div>' +
+      '<div class="grille-form bloc-mesure" hidden style="margin-top:10px">' +
+        '<label class="champ c-cli"><span>Laquelle</span>' +
+          '<select name="mesureId">' + optionsMesures() + '</select></label>' +
+        '<label class="champ c-cli"><span>Comment la compter</span>' +
+          '<select name="agregat">' +
+            '<option value="total">Total sur la période</option>' +
+            '<option value="moyenne">Moyenne par jour</option>' +
+          '</select></label>' +
       '</div>' +
       '<div class="grille-form" style="margin-top:10px">' +
         '<label class="champ c-court"><span>Répétition</span>' +
@@ -306,6 +437,24 @@ var VueQuetes = (function () {
       '<div class="sous-titre muted">Quêtes</div>' +
       (qu.length ? '<div class="lignes">' + qu.map(function (q) { return ligne(q, 'quete'); }).join('') + '</div>'
                  : '<div class="vide">Aucune.</div>') +
+      '<div class="sous-titre muted">Mesures</div>' +
+      (State.mesures().length
+        ? '<div class="lignes">' + State.mesures().map(function (m) {
+            var n = State.releves().filter(function (r) { return r.mesureId === m.id; }).length;
+            return '<div class="ligne' + (m.archive ? ' archive' : '') + '">' +
+              '<div class="l-quoi">' +
+                '<span class="pastille" style="background:' + m.couleur + '"></span>' +
+                U.esc(m.nom) +
+                '<span class="l-client">' + U.esc(m.unite || 'sans unité') + '</span>' +
+                '<span class="muted">' + (m.cumul === false ? 'relevé' : 'cumulatif') + ' · ' + n + ' saisie' + (n > 1 ? 's' : '') + '</span>' +
+              '</div>' +
+              '<div class="l-actions">' +
+                '<button class="btn mini" data-action="jeu.archiver" data-type="mesures" data-id="' + m.id + '">' +
+                  (m.archive ? 'Réactiver' : 'Archiver') + '</button>' +
+                '<button class="btn mini danger" data-action="jeu.supprimer" data-type="mesures" data-id="' + m.id + '">Suppr.</button>' +
+              '</div></div>';
+          }).join('') + '</div>'
+        : '<div class="vide">Aucune.</div>') +
       '<p class="aide">Archiver conserve l\'expérience déjà gagnée et l\'historique ; ' +
       'supprimer retire seulement l\'objectif, jamais les points acquis.</p>' +
       '</div>';
@@ -332,18 +481,25 @@ var VueQuetes = (function () {
           return '<button class="chip" data-action="jeu.modele" data-type="quete" data-i="' + i + '">' +
             '+ ' + U.esc(m.titre) + '</button>';
         }).join('') + '</div>' +
+        '<div class="carte-titre" style="margin-top:18px">Mesures proposées</div>' +
+        '<div class="chips">' + MODELES.mesures.map(function (m, i) {
+          return '<button class="chip" data-action="jeu.modele" data-type="mesure" data-i="' + i + '">' +
+            '+ ' + U.esc(m.nom) + ' <span class="muted">' + U.esc(m.unite) + '</span></button>';
+        }).join('') + '</div>' +
         '<div class="form-actions">' +
           '<button class="btn" data-action="jeu.formSysteme">Créer un système</button>' +
           '<button class="btn" data-action="jeu.formQuete">Créer une quête</button>' +
+          '<button class="btn" data-action="jeu.formMesure">Créer une mesure</button>' +
         '</div>' +
       '</div>' +
       (formSysteme ? formulaireSysteme() : '') +
-      (formQuete ? formulaireQuete() : '');
+      (formQuete ? formulaireQuete() : '') +
+      (formMesure ? formulaireMesure() : '');
   }
 
   function render() {
-    if (!State.systemes().length && !State.quetes().length) return accueilVide();
-    return bandeau() + carteSystemes() + carteQuetes() + carteGestion();
+    if (!State.systemes().length && !State.quetes().length && !State.mesures().length) return accueilVide();
+    return bandeau() + carteSystemes() + carteMesures() + carteQuetes() + carteGestion();
   }
 
   /* --- Actions --- */
@@ -353,6 +509,43 @@ var VueQuetes = (function () {
   App.actions['jeu.formQuete'] = function () { formQuete = !formQuete; App.render(); };
   App.actions['jeu.fermerQuete'] = function () { formQuete = false; App.render(); };
   App.actions['jeu.gestion'] = function () { gestion = !gestion; App.render(); };
+  App.actions['jeu.formMesure'] = function () { formMesure = !formMesure; App.render(); };
+  App.actions['jeu.fermerMesure'] = function () { formMesure = false; App.render(); };
+
+  App.actions['jeu.creerMesure'] = function (f) {
+    State.ajouterMesure({
+      nom: f.nom.value.trim(),
+      unite: f.unite.value.trim(),
+      cumul: f.cumul.value === '1',
+      couleur: U.couleurIndex(State.mesures().length + 3),
+      archive: false
+    });
+    formMesure = false;
+    App.render();
+    App.message('Mesure créée.', 'ok');
+  };
+
+  App.actions['jeu.noter'] = function (f) {
+    var m = State.mesure(f.dataset.id);
+    var v = parseFloat(f.valeur.value);
+    if (!m || isNaN(v)) { App.message('Valeur invalide.', 'erreur'); return; }
+    var avant = Jeu.xpTotal();
+    Jeu.noter(m, v);
+    var gagne = Jeu.xpTotal() - avant;
+    App.render();
+    App.message(Jeu.fmtMesure(m, v) + ' noté · ' +
+      Jeu.fmtMesure(m, Jeu.valeurJour(m, U.aujourdhui())) + " aujourd'hui" +
+      (gagne ? ' · +' + gagne + ' XP' : ''), 'ok');
+  };
+
+  // Affiche les champs propres à une mesure sans redessiner : un re-rendu
+  // effacerait l'intitulé déjà tapé.
+  App.actions['jeu.mesureChange'] = function (el) {
+    el.closest('form').querySelector('.bloc-mesure').hidden = (el.value !== 'mesure');
+  };
+  App.actions['jeu.adosserChange'] = function (el) {
+    el.closest('form').querySelector('.bloc-seuil').hidden = !el.value;
+  };
 
   // Bascule l'affichage sans redessiner : un re-rendu effacerait le nom déjà tapé.
   App.actions['jeu.cadenceChange'] = function (el) {
@@ -370,15 +563,20 @@ var VueQuetes = (function () {
       App.message('Choisis au moins un jour.', 'erreur');
       return;
     }
-    State.ajouterSysteme({
+    var mesureId = f.mesureId ? f.mesureId.value : '';
+    var s = State.ajouterSysteme({
       nom: f.nom.value.trim(),
       cadence: cadence,
       jours: jours,
       cible: cadence === 'semaine' ? Math.max(1, parseInt(f.cible.value, 10) || 1) : null,
       xp: Math.max(1, parseInt(f.xp.value, 10) || 10),
       couleur: U.couleurIndex(State.systemes().length),
+      mesureId: mesureId || null,
+      seuil: mesureId ? (parseFloat(f.seuil.value) || 1) : null,
       archive: false
     });
+    // Un système adossé peut déjà être satisfait par les relevés du jour.
+    if (mesureId) Jeu.reconcilier(mesureId, U.aujourdhui());
     formSysteme = false;
     App.render();
     App.message('Système créé.', 'ok');
@@ -389,6 +587,8 @@ var VueQuetes = (function () {
     State.ajouterQuete({
       titre: f.titre.value.trim(),
       mesure: f.mesure.value,
+      mesureId: f.mesure.value === 'mesure' ? f.mesureId.value : null,
+      agregat: f.mesure.value === 'mesure' ? f.agregat.value : null,
       cible: parseFloat(f.cible.value) || 0,
       periode: periode,
       clientId: f.clientId.value || null,
@@ -407,6 +607,13 @@ var VueQuetes = (function () {
 
   App.actions['jeu.modele'] = function (el) {
     var i = +el.dataset.i;
+    if (el.dataset.type === 'mesure') {
+      var mm = MODELES.mesures[i];
+      State.ajouterMesure({ nom: mm.nom, unite: mm.unite, cumul: mm.cumul,
+        couleur: U.couleurIndex(State.mesures().length + 3), archive: false });
+      App.render();
+      return;
+    }
     if (el.dataset.type === 'systeme') {
       var m = MODELES.systemes[i];
       State.ajouterSysteme({
@@ -448,13 +655,17 @@ var VueQuetes = (function () {
   App.actions['jeu.compteur'] = function (el) {
     var q = State.quetes().find(function (x) { return x.id === el.dataset.id; });
     if (!q) return;
-    State.modifier(q, { compteur: Math.max(0, (q.compteur || 0) + (+el.dataset.delta)) });
+    // Le compteur est rangé sous la clé de la période en cours : une quête
+    // hebdomadaire repart de zéro chaque lundi, comme les autres mesures.
+    var compteurs = Object.assign({}, q.compteurs || {});
+    var cle = Jeu.bornes(q).cle;
+    compteurs[cle] = Math.max(0, Jeu.compteurCourant(q) + (+el.dataset.delta));
+    State.modifier(q, { compteurs: compteurs });
     App.render();
   };
 
   App.actions['jeu.champ'] = function (el) {
-    var l = el.dataset.type === 'systemes' ? State.systemes() : State.quetes();
-    var r = l.find(function (x) { return x.id === el.dataset.id; });
+    var r = collection(el.dataset.type).find(function (x) { return x.id === el.dataset.id; });
     if (!r) return;
     var patch = {};
     patch[el.dataset.champ] = parseFloat(el.value) || 0;
@@ -462,16 +673,24 @@ var VueQuetes = (function () {
     App.render();
   };
 
+  function collection(type) {
+    if (type === 'systemes') return State.systemes();
+    if (type === 'mesures') return State.mesures();
+    return State.quetes();
+  }
+
   App.actions['jeu.archiver'] = function (el) {
-    var l = el.dataset.type === 'systemes' ? State.systemes() : State.quetes();
-    var r = l.find(function (x) { return x.id === el.dataset.id; });
+    var r = collection(el.dataset.type).find(function (x) { return x.id === el.dataset.id; });
     if (!r) return;
     State.modifier(r, { archive: !r.archive });
     App.render();
   };
 
   App.actions['jeu.supprimer'] = function (el) {
-    if (!confirm('Supprimer définitivement ? L\'expérience déjà gagnée reste acquise.')) return;
+    var mesure = el.dataset.type === 'mesures';
+    if (!confirm(mesure
+      ? 'Supprimer cette mesure ? Les relevés déjà saisis ne seront plus consultables.'
+      : 'Supprimer définitivement ? L\'expérience déjà gagnée reste acquise.')) return;
     State.supprimerEnreg(el.dataset.type, el.dataset.id);
     App.render();
   };

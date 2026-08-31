@@ -14,7 +14,7 @@
  *     version est forcément une nouvelle entrée de cache.
  */
 
-const VERSION = '12';
+const VERSION = '13';
 const CACHE = 'quete-v' + VERSION;
 
 const COQUILLE = [

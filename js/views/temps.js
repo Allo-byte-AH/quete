@@ -44,7 +44,16 @@ var VueTemps = (function () {
             U.esc(State.nomCategorie(c.categorieId)) +
             (c.clientId ? ' · ' + U.esc(State.nomClient(c.clientId)) : '') +
             (c.videoId ? '<span class="l-video">▸ ' + U.esc(State.titreVideo(c.videoId) || '?') + '</span>' : '') +
-            ' <span class="muted">depuis ' + c.debut + '</span>' +
+          '</div>' +
+          // On pense au chrono après s'être mis au travail : sans réglage de
+          // l'heure de départ, la relance perdrait les vingt premières minutes.
+          '<div class="chrono-depart">' +
+            '<span class="muted">démarré à</span>' +
+            '<input type="time" value="' + c.debut + '" data-change="temps.debutChrono" ' +
+              'title="Heure de début réelle">' +
+            '<button class="btn mini" data-action="temps.reculer" data-min="5">−5</button>' +
+            '<button class="btn mini" data-action="temps.reculer" data-min="15">−15</button>' +
+            '<button class="btn mini" data-action="temps.reculer" data-min="30">−30 min</button>' +
           '</div>' +
         '</div>' +
         '<button class="btn danger" data-action="temps.arreter">■ Arrêter</button>' +
@@ -145,9 +154,14 @@ var VueTemps = (function () {
   }
 
   function liste() {
+    // Le journal montre la journée entière — c'est un carnet. Mais le total et
+    // la barre d'objectif ne comptent que le travail : un déjeuner ne rapproche
+    // pas d'une journée de six heures.
     var entrees = State.entreesDuJour(date);
-    var total = State.totalMinutes(entrees);
-    var fact = State.totalFacturable(entrees);
+    var travail = State.sansPerso(entrees);
+    var total = State.totalMinutes(travail);
+    var perso = State.totalMinutes(State.seulementPerso(entrees));
+    var fact = State.totalFacturable(travail);
     var cible = State.d.settings.heuresCibleJour * 60;
 
     var lignes = entrees.length
@@ -192,7 +206,8 @@ var VueTemps = (function () {
           '<div class="gros">' + U.fmtDuree(total) + '</div>' +
           '<div class="barre"><div class="barre-plein" style="width:' + Math.min(100, U.pct(total, cible)) + '%"></div></div>' +
           '<div class="muted">objectif ' + U.fmtDuree(cible) + ' · ' +
-            '<strong style="color:var(--vert)">' + U.fmtDuree(fact) + '</strong> facturable (' + U.pct(fact, total) + '%)</div>' +
+            '<strong style="color:var(--vert)">' + U.fmtDuree(fact) + '</strong> facturable (' + U.pct(fact, total) + '%)' +
+            (perso ? ' · <strong>' + U.fmtDuree(perso) + '</strong> personnel' : '') + '</div>' +
         '</div>' +
         ruban(entrees) +
         '<div class="lignes">' + lignes + '</div>' +
@@ -318,6 +333,20 @@ var VueTemps = (function () {
     }
     App.message(msg, 'ok');
   }
+
+  App.actions['temps.reculer'] = function (el) {
+    var c = State.ajusterChrono(+el.dataset.min);
+    if (!c) return;
+    App.render();
+    App.message('Départ ramené à ' + c.debut + ' — ' + U.fmtDuree(State.chronoEcoule()) + ' écoulées.', 'ok');
+  };
+
+  App.actions['temps.debutChrono'] = function (el) {
+    var c = State.definirDebutChrono(el.value);
+    if (!c) { App.message('Heure invalide.', 'erreur'); return; }
+    App.render();
+    App.message('Départ à ' + c.debut + ' — ' + U.fmtDuree(State.chronoEcoule()) + ' écoulées.', 'ok');
+  };
 
   App.actions['temps.arreter'] = function () {
     if (!State.d.chrono) return;

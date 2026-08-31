@@ -431,6 +431,21 @@ input[type=checkbox] { width: auto; }
 .seg.actif { background: var(--accent); color: #fff; }
 .seg .court { display: none; }
 
+/* Portée : plus discrète que le regroupement, c'est un cadrage, pas une action. */
+.segmente.portee { padding: 2px; }
+.segmente.portee .seg { padding: 5px 11px; font-size: 12.5px; }
+
+/* Nature d'une catégorie : la couleur dit tout de suite ce qui entre
+   dans les chiffres professionnels et ce qui n'y entre pas. */
+.nature-sel {
+  width: auto; flex: none; font-size: 12.5px; padding: 5px 8px;
+  background: var(--fond2); border-color: var(--bord);
+}
+.nature-sel.nat-facturable { color: var(--vert); border-color: rgba(46,204,143,.35); }
+.nature-sel.nat-pro { color: var(--texte); }
+.nature-sel.nat-perso { color: var(--accent2); border-color: rgba(124,92,255,.4); }
+.ajout select { width: auto; flex: none; }
+
 .an-panneau { border-top: 1px solid var(--bord); padding-top: 14px; display: grid; gap: 14px; }
 .an-prereglages { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
 .an-groupes { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; }
@@ -577,6 +592,39 @@ input[type=checkbox] { width: auto; }
 .qu-gagne { color: var(--vert); font-weight: 700; }
 .barre-plein.atteint { background: linear-gradient(90deg, #57e0aa, var(--vert)); }
 
+/* --- Mesures --- */
+
+.mes-ligne {
+  display: grid; gap: 8px;
+  padding: 12px 0; border-bottom: 1px solid var(--bord);
+}
+.mes-ligne:last-child { border-bottom: none; padding-bottom: 0; }
+.mes-tete { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mes-nom { font-size: 14px; font-weight: 600; }
+.mes-auj { font-size: 13px; color: var(--accent2); font-variant-numeric: tabular-nums; }
+.mes-saisie { display: flex; gap: 6px; margin-left: auto; }
+.mes-saisie input { width: 96px; text-align: right; padding: 6px 9px; font-size: 13px; }
+.mes-sous { font-size: 12px; }
+
+.mes-grille { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; max-width: 320px; }
+.mes-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.mes-barre {
+  width: 100%; height: 34px; display: flex; align-items: flex-end;
+  background: var(--fond2); border: 1px solid var(--bord); border-radius: 5px; overflow: hidden;
+}
+.mes-plein { width: 100%; border-radius: 0 0 4px 4px; transition: height .3s; }
+.mes-col span { font-size: 10px; color: var(--muted); text-transform: uppercase; }
+
+/* Case d'un système adossé à une mesure : elle informe, elle ne se clique pas. */
+.sys-case.auto { cursor: default; color: var(--muted); font-size: 13px; }
+.sys-case.auto.ok { color: #fff; }
+.sys-pt.fige { cursor: default; }
+.sys-pt.fige:hover { transform: none; }
+
+/* Réglage du départ d'un chrono en cours. */
+.chrono-depart { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 7px; font-size: 12.5px; }
+.chrono-depart input { width: auto; padding: 4px 8px; font-size: 12.5px; }
+
 .gestion-repli { padding: 12px 18px; text-align: center; }
 .sous-titre { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin: 14px 0 6px; }
 .sous-titre:first-of-type { margin-top: 0; }
@@ -676,9 +724,11 @@ input[type=checkbox] { width: auto; }
   .an-outils { gap: 8px; }
   .an-outils .btn:last-child { margin-left: 0; }
   .segmente { flex: 1 1 100%; min-width: 0; }
-  .seg { flex: 1 1 0; min-width: 0; padding: 7px 4px; font-size: 12px; }
+  .seg { flex: 1 1 0; min-width: 0; padding: 7px 3px; font-size: 11.5px; }
   .seg .long { display: none; }
   .seg .court { display: inline; }
+  .segmente.portee .seg { padding: 6px 3px; font-size: 12px; }
+  .nature-sel { flex: 1 1 100%; }
   .an-groupes { grid-template-columns: 1fr; }
   .stat.grand .stat-valeur { font-size: 28px; }
   .graphe { min-height: 180px; }
@@ -700,4 +750,8 @@ input[type=checkbox] { width: auto; }
   .sys-grille { display: grid; grid-template-columns: repeat(7, 1fr); max-width: 240px; }
   .qu-tete { flex-wrap: wrap; gap: 4px 12px; }
   .jour-chip span { width: 38px; height: 38px; }
+  .mes-saisie { margin-left: 0; flex: 1 1 100%; }
+  .mes-saisie input { flex: 1; width: auto; }
+  .mes-grille { max-width: none; }
+  .chrono-depart .btn.mini { padding: 4px 8px; }
 }

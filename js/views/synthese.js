@@ -7,20 +7,39 @@
 var VueSynthese = (function () {
   var CLE = 'quete.analyse';
 
+  // `argent: true` marque les colonnes qui n'ont aucun sens hors d'une analyse
+  // de revenu — le prix d'une vidéo n'est imputable ni au derush ni au montage,
+  // et encore moins au temps passé à déjeuner.
   var COLONNES = [
     { id: 'heures', nom: 'Heures', val: function (l) { return U.fmtDuree(l.heures); }, tri: function (l) { return l.heures; } },
+    { id: 'part', nom: '% du temps', val: function (l) { return l.part === null ? '—' : Math.round(l.part * 100) + ' %'; }, tri: function (l) { return l.part || 0; } },
+    { id: 'moyJour', nom: 'Moy./jour', val: function (l) { return l.moyJour === null ? '—' : U.fmtDuree(l.moyJour); }, tri: function (l) { return l.moyJour || 0; } },
+    { id: 'moySeance', nom: 'Moy./séance', val: function (l) { return l.moySeance === null ? '—' : U.fmtDuree(l.moySeance); }, tri: function (l) { return l.moySeance || 0; } },
+    { id: 'nbEntrees', nom: 'Séances', val: function (l) { return l.nbEntrees || '—'; }, tri: function (l) { return l.nbEntrees; } },
     { id: 'heuresComptees', nom: 'Comptées', val: function (l) { return U.fmtDuree(l.heuresComptees); }, tri: function (l) { return l.heuresComptees; } },
-    { id: 'ca', nom: 'CA', val: function (l) { return U.argentCourt(l.ca); }, tri: function (l) { return l.ca; } },
-    { id: 'taux', nom: 'Taux', fort: true, val: function (l) { return U.taux(l.taux); }, tri: function (l) { return l.taux === null ? -1 : l.taux; } },
+    { id: 'ca', nom: 'CA', argent: true, val: function (l) { return U.argentCourt(l.ca); }, tri: function (l) { return l.ca; } },
+    { id: 'taux', nom: 'Taux', argent: true, fort: true, val: function (l) { return U.taux(l.taux); }, tri: function (l) { return l.taux === null ? -1 : l.taux; } },
     { id: 'partFacturable', nom: '% fact.', val: function (l) { return l.partFacturable === null ? '—' : Math.round(l.partFacturable * 100) + ' %'; }, tri: function (l) { return l.partFacturable || 0; } },
-    { id: 'nbVideos', nom: 'Vidéos', val: function (l) { return l.nbVideos || '—'; }, tri: function (l) { return l.nbVideos; } }
+    { id: 'nbVideos', nom: 'Vidéos', argent: true, val: function (l) { return l.nbVideos || '—'; }, tri: function (l) { return l.nbVideos; } }
+  ];
+
+  var PORTEES = [
+    { id: 'pro', nom: 'Pro', aide: 'le travail seul — comme avant' },
+    { id: 'perso', nom: 'Perso', aide: 'le temps personnel seul' },
+    { id: 'tout', nom: 'Tout', aide: 'la journée entière' }
   ];
 
   var f = null;
+  // Deux jeux de colonnes : les mêmes cases ne conviennent pas à une analyse de
+  // revenu et à une analyse de temps. Chacun garde sa mémoire.
   var colonnes = null;
+  var colonnesTemps = null;
   var tri = { id: 'taux', sens: -1 };
   var ouverts = {};
   var panneau = false;
+
+  function modeTemps() { return f.groupement === 'categorie'; }
+  function jeuColonnes() { return modeTemps() ? colonnesTemps : colonnes; }
 
   /* --- Préférences : par appareil, hors de l'état synchronisé.
      C'est un réglage d'affichage, pas une donnée. --- */
@@ -28,19 +47,26 @@ var VueSynthese = (function () {
   function init() {
     if (f) return;
     f = Synthese.filtresParDefaut();
-    colonnes = { heures: true, heuresComptees: false, ca: true, taux: true, partFacturable: false, nbVideos: true };
+    colonnes = { heures: true, part: false, moyJour: false, moySeance: false, nbEntrees: false,
+                 heuresComptees: false, ca: true, taux: true, partFacturable: false, nbVideos: true };
+    colonnesTemps = { heures: true, part: true, moyJour: true, moySeance: true, nbEntrees: true,
+                      heuresComptees: false, ca: false, taux: false, partFacturable: false, nbVideos: false };
     tri = triParDefaut(f.groupement);
     try {
       var brut = JSON.parse(Local.lire(CLE) || 'null');
       if (brut) {
         Object.assign(f, brut.f || {});
         Object.assign(colonnes, brut.colonnes || {});
+        Object.assign(colonnesTemps, brut.colonnesTemps || {});
         tri = brut.tri || tri;
       }
     } catch (e) { /* préférences illisibles : on garde les valeurs par défaut */ }
+    if (!f.portee) f.portee = 'pro';
   }
   function persister() {
-    try { Local.ecrire(CLE, JSON.stringify({ f: f, colonnes: colonnes, tri: tri })); } catch (e) {}
+    try {
+      Local.ecrire(CLE, JSON.stringify({ f: f, colonnes: colonnes, colonnesTemps: colonnesTemps, tri: tri }));
+    } catch (e) {}
   }
 
   /* --- Fragments --- */
@@ -79,13 +105,21 @@ var VueSynthese = (function () {
         '<div class="chips">' + raccourcis.map(function (r) {
           return '<button class="chip" data-action="an.periode" data-id="' + r.id + '">' + r.nom + '</button>';
         }).join('') + '</div>' +
+        // La portée décide de ce qu'on regarde : le travail, la vie, ou les deux.
+        // « Pro » par défaut, pour que noter ses repas ne change aucun chiffre.
+        '<div class="segmente portee">' + PORTEES.map(function (p) {
+          return '<button class="seg' + (f.portee === p.id ? ' actif' : '') +
+            '" data-action="an.portee" data-id="' + p.id + '" title="' + U.esc(p.aide) + '">' +
+            p.nom + '</button>';
+        }).join('') + '</div>' +
       '</div>' +
       '<div class="an-outils">' +
-        // Quatre choix ne tiennent pas côte à côte sur un téléphone en « Par
-        // semaine » : le libellé court prend le relais, comme dans la navigation.
+        // Les libellés ne tiennent pas côte à côte sur un téléphone : la forme
+        // courte prend le relais, comme dans la navigation.
         '<div class="segmente">' + [
           { id: 'client', nom: 'client' },
           { id: 'video', nom: 'vidéo' },
+          { id: 'categorie', nom: 'tâche' },
           { id: 'semaine', nom: 'semaine' },
           { id: 'mois', nom: 'mois' }
         ].map(function (g) {
@@ -126,14 +160,39 @@ var VueSynthese = (function () {
         cases('categories', cats, f.categories, 'Heures comptées dans le taux') +
         cases('clients', cls, f.clients, 'Périmètre — clients') +
         cases('statuts', State.STATUTS, f.statuts, 'Périmètre — statuts de vidéo') +
-        cases('colonnes', COLONNES, Object.keys(colonnes).filter(function (k) { return colonnes[k]; }), 'Colonnes affichées') +
+        cases('colonnes', colonnesPossibles(),
+              Object.keys(jeuColonnes()).filter(function (k) { return jeuColonnes()[k]; }),
+              'Colonnes affichées') +
       '</div>' +
       '<p class="aide">Décocher une catégorie la retire du <strong>dénominateur</strong> : ' +
       'ses heures restent visibles dans la colonne Heures, mais ne divisent plus le CA.</p>' +
       '</div>';
   }
 
+  // En portée personnelle il n'y a ni chiffre d'affaires ni taux horaire :
+  // afficher « — » quatre fois ne renseignerait personne. Le bandeau parle
+  // alors de temps, ce qui est précisément ce qu'on est venu voir.
+  function bandeauTemps(r) {
+    var t = r.total;
+    function bloc(label, valeur, sous, couleur) {
+      return '<div class="stat"><div class="stat-label">' + label + '</div>' +
+        '<div class="stat-valeur"' + (couleur ? ' style="color:' + couleur + '"' : '') + '>' + valeur + '</div>' +
+        '<div class="stat-sous">' + sous + '</div></div>';
+    }
+    return '<div class="stats">' +
+      '<div class="stat grand">' +
+        '<div class="stat-label">Temps total</div>' +
+        '<div class="stat-valeur" style="color:var(--accent2)">' + U.fmtDuree(t.heures) + '</div>' +
+        '<div class="stat-sous">sur ' + r.jours + ' jour' + (r.jours > 1 ? 's' : '') + '</div>' +
+      '</div>' +
+      bloc('Moyenne par jour', t.moyJour === null ? '—' : U.fmtDuree(t.moyJour), 'jours vides compris') +
+      bloc('Séances', t.nbEntrees || '—', 'entrées notées') +
+      bloc('Moyenne par séance', t.moySeance === null ? '—' : U.fmtDuree(t.moySeance), 'durée typique') +
+      '</div>';
+  }
+
   function bandeau(r) {
+    if (f.portee === 'perso') return bandeauTemps(r);
     var t = r.total;
     var ecart = (t.taux !== null && t.tauxReference !== null) ? t.taux - t.tauxReference : null;
     var filtre = !!f.categories;
@@ -175,14 +234,24 @@ var VueSynthese = (function () {
     var pts = r.serie.points;
     if (!pts.length) return '';
 
+    // En portée personnelle, la courbe suit le temps et non le taux : un seul
+    // tracé, et pas de référence à laquelle se comparer.
+    var enTemps = f.portee === 'perso';
     var L = 1000, H = 250, gx = 52, gd = 14, gh = 18, gb = 34;
     var max = 0;
     pts.forEach(function (p) {
-      max = Math.max(max, p.taux || 0, p.tauxReference || 0);
+      max = enTemps ? Math.max(max, p.heures || 0)
+                    : Math.max(max, p.taux || 0, p.tauxReference || 0);
     });
-    if (max <= 0) return '<div class="carte"><div class="carte-titre">Évolution du taux</div>' +
-      '<div class="vide">Aucun chiffre d\'affaires sur la période.</div></div>';
-    max = Math.ceil(max / 20) * 20;
+    if (max <= 0) return '<div class="carte"><div class="carte-titre">' +
+      (enTemps ? 'Évolution du temps' : 'Évolution du taux') + '</div>' +
+      '<div class="vide">' + (enTemps ? 'Aucun temps noté sur la période.' : 'Aucun chiffre d\'affaires sur la période.') + '</div></div>';
+    max = enTemps ? Math.ceil(max / 60) * 60 : Math.ceil(max / 20) * 20;
+
+    var fmtAxe = enTemps
+      ? function (v) { return Math.round(v / 60) + ' h'; }
+      : function (v) { return Math.round(v); };
+    var fmtPoint = enTemps ? U.fmtDuree : U.taux;
 
     var x = function (i) { return pts.length === 1 ? (gx + (L - gx - gd) / 2) : gx + i * (L - gx - gd) / (pts.length - 1); };
     var y = function (v) { return gh + (1 - (v || 0) / max) * (H - gh - gb); };
@@ -193,14 +262,14 @@ var VueSynthese = (function () {
     function points(champ, cls) {
       return pts.map(function (p, i) {
         return '<circle class="' + cls + '" cx="' + x(i) + '" cy="' + y(p[champ] || 0) + '" r="4">' +
-          '<title>' + U.esc(p.libelle) + ' — ' + U.taux(p[champ]) + '</title></circle>';
+          '<title>' + U.esc(p.libelle) + ' — ' + fmtPoint(p[champ]) + '</title></circle>';
       }).join('');
     }
 
     var grilles = [0, 0.5, 1].map(function (t) {
       var v = max * t;
       return '<line class="grille" x1="' + gx + '" y1="' + y(v) + '" x2="' + (L - gd) + '" y2="' + y(v) + '"></line>' +
-        '<text class="axe" x="' + (gx - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + Math.round(v) + '</text>';
+        '<text class="axe" x="' + (gx - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + fmtAxe(v) + '</text>';
     }).join('');
 
     // Un libellé sur deux quand les points se serrent.
@@ -212,25 +281,37 @@ var VueSynthese = (function () {
     }).join('');
 
     return '<div class="carte">' +
-      '<div class="carte-titre">Évolution du taux ' +
+      '<div class="carte-titre">' + (enTemps ? 'Évolution du temps' : 'Évolution du taux') + ' ' +
         '<span class="muted">— par ' + r.serie.granularite + '</span>' +
-        '<span class="legende">' +
-          '<span class="lg lg-filtre"></span> sous filtres' +
-          '<span class="lg lg-ref"></span> tout compté' +
-        '</span></div>' +
+        (enTemps ? '' :
+          '<span class="legende">' +
+            '<span class="lg lg-filtre"></span> sous filtres' +
+            '<span class="lg lg-ref"></span> tout compté' +
+          '</span>') +
+      '</div>' +
       '<svg class="graphe" viewBox="0 0 ' + L + ' ' + H + '" preserveAspectRatio="xMidYMid meet">' +
         grilles +
-        '<polyline class="ligne-ref" points="' + trace('tauxReference') + '"></polyline>' +
-        '<polyline class="ligne-filtre" points="' + trace('taux') + '"></polyline>' +
-        points('tauxReference', 'pt-ref') + points('taux', 'pt-filtre') +
+        (enTemps
+          ? '<polyline class="ligne-filtre" points="' + trace('heures') + '"></polyline>' +
+            points('heures', 'pt-filtre')
+          : '<polyline class="ligne-ref" points="' + trace('tauxReference') + '"></polyline>' +
+            '<polyline class="ligne-filtre" points="' + trace('taux') + '"></polyline>' +
+            points('tauxReference', 'pt-ref') + points('taux', 'pt-filtre')) +
         etiquettes +
       '</svg></div>';
   }
 
   /* --- Tableau --- */
 
+  // Les colonnes d'argent disparaissent du regroupement par tâche : elles n'y
+  // ont pas de sens, et les proposer inviterait à lire un chiffre faux.
+  function colonnesPossibles() {
+    return COLONNES.filter(function (c) { return !(c.argent && modeTemps()); });
+  }
   function visibles() {
-    return COLONNES.filter(function (c) { return colonnes[c.id]; });
+    var jeu = jeuColonnes();
+    var l = colonnesPossibles().filter(function (c) { return jeu[c.id]; });
+    return l.length ? l : colonnesPossibles().slice(0, 1);
   }
 
   function trierLignes(l) {
@@ -251,19 +332,28 @@ var VueSynthese = (function () {
   // Chaque regroupement a son ordre naturel : chronologique pour les mois,
   // du plus rentable au moins rentable pour les clients et les vidéos.
   function triParDefaut(groupement) {
-    return Synthese.temporel({ groupement: groupement })
-      ? { id: 'libelle', sens: 1 }
-      : { id: 'taux', sens: -1 };
+    if (Synthese.temporel({ groupement: groupement })) return { id: 'libelle', sens: 1 };
+    // Par tâche, le taux ne veut rien dire : c'est le temps qui classe.
+    if (groupement === 'categorie') return { id: 'heures', sens: -1 };
+    return { id: 'taux', sens: -1 };
   }
 
   function tableau(r) {
     var cols = visibles();
     var lignes = trierLignes(r.lignes);
+    // Par tâche, la ligne qui ne porte que le chiffre d'affaires n'a plus de
+    // colonne pour s'exprimer : elle n'afficherait qu'une rangée de zéros.
+    // Elle existe pour que le total du CA reste juste, pas pour être lue.
+    if (modeTemps()) {
+      lignes = lignes.filter(function (l) { return l.heures > 0 || l.nbEntrees > 0; });
+    }
     var pliable = f.groupement !== 'video';
 
     var entete = '<div class="an-ligne an-entete" style="' + gabarit(cols) + '">' +
       '<button class="an-th gauche' + (tri.id === 'libelle' ? ' actif' : '') + '" data-action="an.tri" data-id="libelle">' +
-        (Synthese.temporel(f) ? 'Période' : f.groupement === 'video' ? 'Vidéo' : 'Client') +
+        (Synthese.temporel(f) ? 'Période'
+          : f.groupement === 'video' ? 'Vidéo'
+          : f.groupement === 'categorie' ? 'Tâche' : 'Client') +
         (tri.id === 'libelle' ? (tri.sens < 0 ? ' ▾' : ' ▴') : '') + '</button>' +
       cols.map(function (c) {
         return '<button class="an-th' + (tri.id === c.id ? ' actif' : '') + '" data-action="an.tri" data-id="' + c.id + '">' +
@@ -332,6 +422,13 @@ var VueSynthese = (function () {
     ouverts = {};
     maj();
   };
+  App.actions['an.portee'] = function (el) {
+    f.portee = el.dataset.id;
+    // Le tri par taux n'a plus de sens sans chiffre d'affaires.
+    if (f.portee === 'perso' && (tri.id === 'taux' || tri.id === 'ca')) tri = { id: 'heures', sens: -1 };
+    ouverts = {};
+    maj();
+  };
   App.actions['an.du'] = function (el) { f.du = el.value; maj(); };
   App.actions['an.au'] = function (el) { f.au = el.value; maj(); };
 
@@ -353,7 +450,11 @@ var VueSynthese = (function () {
   // null signifie « tout coché ». On ne matérialise la liste qu'au premier
   // décochage, pour qu'une catégorie créée plus tard soit comptée d'office.
   function listeDe(groupe) {
-    if (groupe === 'colonnes') return Object.keys(colonnes).filter(function (k) { return colonnes[k]; });
+    if (groupe === 'colonnes') {
+      var jeu = jeuColonnes();
+      return colonnesPossibles().filter(function (c) { return jeu[c.id]; })
+        .map(function (c) { return c.id; });
+    }
     if (f[groupe] !== null) return f[groupe].slice();
     return tousLesIds(groupe);
   }
@@ -361,12 +462,14 @@ var VueSynthese = (function () {
     if (groupe === 'categories') return State.categories().filter(function (c) { return !c.archive; }).map(function (c) { return c.id; });
     if (groupe === 'clients') return State.clients().filter(function (c) { return !c.archive; }).map(function (c) { return c.id; }).concat([Synthese.SANS]);
     if (groupe === 'statuts') return State.STATUTS.map(function (s) { return s.id; });
-    return COLONNES.map(function (c) { return c.id; });
+    return colonnesPossibles().map(function (c) { return c.id; });
   }
   function appliquer(groupe, liste) {
     if (groupe === 'colonnes') {
-      COLONNES.forEach(function (c) { colonnes[c.id] = liste.indexOf(c.id) !== -1; });
-      if (!visibles().length) colonnes.taux = true;   // jamais un tableau sans colonne
+      var jeu = jeuColonnes();
+      colonnesPossibles().forEach(function (c) { jeu[c.id] = liste.indexOf(c.id) !== -1; });
+      // Jamais un tableau sans colonne.
+      if (!liste.length) jeu.heures = true;
       return;
     }
     f[groupe] = liste.length === tousLesIds(groupe).length ? null : liste;
@@ -418,6 +521,17 @@ var VueSynthese = (function () {
 
   return {
     titre: 'Synthèse',
-    render: render
+    render: render,
+    // Point d'entrée depuis le tableau de bord : ouvrir directement sur le
+    // temps personnel, groupé par tâche, sur le mois en cours.
+    portee: function (p) {
+      init();
+      f.portee = p;
+      if (p === 'perso') {
+        f.groupement = 'categorie';
+        tri = triParDefaut('categorie');
+      }
+      persister();
+    }
   };
 })();
