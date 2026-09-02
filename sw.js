@@ -14,7 +14,7 @@
  *     version est forcément une nouvelle entrée de cache.
  */
 
-const VERSION = '13';
+const VERSION = '14';
 const CACHE = 'quete-v' + VERSION;
 
 const COQUILLE = [
@@ -30,6 +30,7 @@ const COQUILLE = [
   './js/state.js?v=' + VERSION,
   './js/synthese.js?v=' + VERSION,
   './js/jeu.js?v=' + VERSION,
+  './js/notif.js?v=' + VERSION,
   './js/distant.js?v=' + VERSION,
   './js/sync.js?v=' + VERSION,
   './js/app.js?v=' + VERSION,
@@ -59,6 +60,30 @@ self.addEventListener('activate', (e) => {
       .then((noms) => Promise.all(noms.filter((n) => n !== CACHE).map((n) => caches.delete(n))))
       .then(() => self.clients.claim())
   );
+});
+
+/* Clic sur la notification du chrono.
+ *
+ * Le service worker n'a pas accès à localStorage : il ne peut pas arrêter le
+ * chrono lui-même. Il réveille donc la page — ou l'ouvre si elle est fermée —
+ * et lui passe la consigne. C'est la page qui possède l'état, et c'est elle
+ * qui enregistre l'entrée.
+ */
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const arreter = e.action === 'arreter';
+
+  e.waitUntil((async () => {
+    const fenetres = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of fenetres) {
+      if ('focus' in c) {
+        if (arreter) c.postMessage({ type: 'chrono-arreter' });
+        return c.focus();
+      }
+    }
+    // Application fermée : on l'ouvre, et le drapeau est lu au démarrage.
+    return self.clients.openWindow(arreter ? './?arreter=1#/temps' : './#/temps');
+  })());
 });
 
 self.addEventListener('fetch', (e) => {
