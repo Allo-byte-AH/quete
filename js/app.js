@@ -68,7 +68,15 @@ var App = {
     window.addEventListener('hashchange', function () { App.route(); });
     window.addEventListener('beforeunload', function () { State.sauverMaintenant(); });
     setInterval(function () { App.tick(); }, 1000);
+    this.ecouterServiceWorker();
     this.route();
+    // « Arrêter » tapé alors que l'application était fermée : le service worker
+    // l'a rouverte avec ce drapeau, qu'on retire aussitôt de l'adresse pour
+    // qu'un rechargement ne rejoue pas l'arrêt.
+    if (/[?&]arreter=1/.test(location.search)) {
+      history.replaceState(null, '', location.pathname + location.hash);
+      this.arreterChronoDepuisNotif();
+    }
     if (!Local.disponible) {
       this.message('Ce navigateur refuse le stockage local pour ce site. ' +
         'L\'application fonctionne, mais tout sera perdu à la fermeture si la ' +
@@ -81,6 +89,27 @@ var App = {
     }
     // Après l'affichage : la synchronisation ne doit jamais retarder l'ouverture.
     Sync.demarrer();
+  },
+
+  // Le service worker n'ayant pas accès au stockage, c'est ici qu'on arrête
+  // réellement le chrono quand le bouton de la notification est tapé.
+  ecouterServiceWorker: function () {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.addEventListener('message', function (ev) {
+      if (ev.data && ev.data.type === 'chrono-arreter') App.arreterChronoDepuisNotif();
+    });
+  },
+
+  arreterChronoDepuisNotif: function () {
+    if (!State.d || !State.d.chrono) return;
+    var r = State.arreterChrono(0);
+    if (window.Notif) Notif.effacer();
+    this.aller('temps');
+    this.render();
+    this.message(r.tropLong
+      ? 'Chrono arrêté — il tournait depuis ' + U.fmtDuree(r.ecoule) + ', vérifie l\'entrée.'
+      : U.fmtDuree(r.ecoule) + ' enregistré sur « ' + State.libelleTache(r.chrono) + ' ».',
+      r.tropLong ? 'alerte' : 'ok');
   },
 
   route: function () {
@@ -101,6 +130,12 @@ var App = {
     document.title = vue.titre + ' · QUÊTE';
     this.renderNav();
     this.renderHud();
+    // La notification du chrono se remet d'accord avec l'état après chaque
+    // rendu : peu importe par où le chrono a démarré ou s'est arrêté.
+    if (window.Notif) {
+      Notif.synchroniser();
+      Notif.pastille(!!State.d.chrono);
+    }
   },
 
   renderNav: function () {

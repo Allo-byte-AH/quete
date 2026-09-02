@@ -412,6 +412,17 @@ input[type=checkbox] { width: auto; }
 .version { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .version strong { color: var(--texte); }
 
+.notif-bloc { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--bord); }
+.notif-tete { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.notif-tete strong { font-size: 14px; }
+.notif-tete .btn { margin-left: auto; }
+.notif-bloc .aide { margin-top: 8px; }
+.verdict {
+  display: inline-flex; align-items: center; margin-left: auto;
+  font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px;
+}
+.verdict.v-refus { color: var(--rouge); background: rgba(255,92,114,.12); border: 1px solid rgba(255,92,114,.35); }
+
 /* --- Analyse --- */
 
 .an-barre { display: grid; gap: 12px; }
@@ -621,9 +632,16 @@ input[type=checkbox] { width: auto; }
 .sys-pt.fige { cursor: default; }
 .sys-pt.fige:hover { transform: none; }
 
-/* Réglage du départ d'un chrono en cours. */
-.chrono-depart { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 7px; font-size: 12.5px; }
-.chrono-depart input { width: auto; padding: 4px 8px; font-size: 12.5px; }
+/* Réglage du départ d'un chrono en cours : un vrai champ, pas une étiquette. */
+.chrono-depart { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.chrono-champ { display: flex; flex-direction: column; gap: 4px; }
+.chrono-champ > span {
+  font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em;
+}
+.chrono-champ input {
+  width: auto; min-width: 108px; padding: 7px 10px; font-size: 14px;
+  font-variant-numeric: tabular-nums; background: var(--fond2);
+}
 
 .gestion-repli { padding: 12px 18px; text-align: center; }
 .sous-titre { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin: 14px 0 6px; }

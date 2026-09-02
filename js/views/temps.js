@@ -45,15 +45,16 @@ var VueTemps = (function () {
             (c.clientId ? ' · ' + U.esc(State.nomClient(c.clientId)) : '') +
             (c.videoId ? '<span class="l-video">▸ ' + U.esc(State.titreVideo(c.videoId) || '?') + '</span>' : '') +
           '</div>' +
-          // On pense au chrono après s'être mis au travail : sans réglage de
-          // l'heure de départ, la relance perdrait les vingt premières minutes.
+          // On pense au chrono après s'être mis au travail : l'heure de début
+          // est donc un champ ordinaire, éditable comme celui d'une nouvelle
+          // entrée, et non une valeur figée qu'on ne corrigerait qu'à coups de
+          // boutons. Les raccourcis restent, en second.
           '<div class="chrono-depart">' +
-            '<span class="muted">démarré à</span>' +
-            '<input type="time" value="' + c.debut + '" data-change="temps.debutChrono" ' +
-              'title="Heure de début réelle">' +
-            '<button class="btn mini" data-action="temps.reculer" data-min="5">−5</button>' +
-            '<button class="btn mini" data-action="temps.reculer" data-min="15">−15</button>' +
-            '<button class="btn mini" data-action="temps.reculer" data-min="30">−30 min</button>' +
+            '<label class="chrono-champ"><span>Début</span>' +
+              '<input type="time" value="' + c.debut + '" data-change="temps.debutChrono" ' +
+                'title="Heure à laquelle tu as réellement commencé"></label>' +
+            '<button class="btn mini" data-action="temps.reculer" data-min="15">−15 min</button>' +
+            '<button class="btn mini" data-action="temps.reculer" data-min="30">−30</button>' +
           '</div>' +
         '</div>' +
         '<button class="btn danger" data-action="temps.arreter">■ Arrêter</button>' +

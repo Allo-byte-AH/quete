@@ -174,7 +174,33 @@ var VueReglages = (function () {
       '<p class="aide">Les mises à jour arrivent d\'elles-mêmes à l\'ouverture. ' +
       'Ce bouton sert à ne pas attendre, ou à vérifier après une livraison. ' +
       'Réinstaller l\'application sur le téléphone n\'est jamais nécessaire.</p>' +
+      notifications() +
       '</div>';
+  }
+
+  function notifications() {
+    if (!window.Notif || !Notif.supporte()) {
+      return '<p class="aide"><strong>Notification du chrono</strong> — indisponible ici : ' +
+        'ce navigateur ne les gère pas, ou la page n\'est pas servie en HTTPS.</p>';
+    }
+    var p = Notif.permission();
+    var on = Notif.active();
+
+    return '<div class="notif-bloc">' +
+      '<div class="notif-tete">' +
+        '<strong>Notification pendant un chrono</strong>' +
+        (p === 'denied'
+          ? '<span class="verdict v-refus">Bloquée</span>'
+          : '<button class="btn mini' + (on ? ' vert' : ' primaire') + '" data-action="reg.notif">' +
+            (on ? 'Désactiver' : 'Activer') + '</button>') +
+      '</div>' +
+      '<p class="aide">' + (p === 'denied'
+        ? 'Les notifications sont bloquées pour ce site. Réautorise-les dans les réglages du navigateur, puis reviens ici.'
+        : 'Un rappel épinglé dans le volet du téléphone tant qu\'un chrono tourne, ' +
+          'avec l\'heure de début et un bouton pour l\'arrêter. ' +
+          '<strong>Sur iPhone</strong>, l\'application doit être installée sur l\'écran d\'accueil, ' +
+          'et le bouton n\'existe pas : la notification ouvre l\'onglet Temps, où « Arrêter » est à portée.') +
+      '</p></div>';
   }
 
   function render() {
@@ -251,6 +277,26 @@ var VueReglages = (function () {
     }
   };
   App.actions['reg.majApp'] = function () { App.chercherMiseAJour(); };
+
+  App.actions['reg.notif'] = async function () {
+    if (Notif.active()) {
+      Notif.desactiver();
+      App.render();
+      App.message('Notification du chrono désactivée.', 'ok');
+      return;
+    }
+    try {
+      // La demande d'autorisation doit partir d'un geste : c'est ce clic.
+      await Notif.activer();
+      App.render();
+      App.message(State.d.chrono
+        ? 'Notification activée — le chrono en cours vient d\'y apparaître.'
+        : 'Notification activée. Elle apparaîtra au prochain chrono.', 'ok');
+    } catch (e) {
+      App.render();
+      App.message(e.message, 'erreur');
+    }
+  };
 
   App.actions['reg.syncMaintenant'] = function () { Sync.maintenant().then(function () { App.render(); }); };
   App.actions['reg.syncOublier'] = function () {

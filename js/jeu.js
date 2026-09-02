@@ -302,6 +302,22 @@ var Jeu = (function () {
     return MESURES.find(function (m) { return m.id === id; }) || MESURES[0];
   }
 
+  /* Traduit le choix du formulaire en champs de la quête. Une grandeur suivie
+   * s'écrit « m:<mesure>:<agrégat> » ; les identifiants étant en base 36, le
+   * deux-points ne peut pas s'y trouver et la découpe est sans ambiguïté.
+   *
+   * Cette conversion vit ici plutôt que dans la vue parce que c'est une règle,
+   * pas un affichage — et parce qu'un défaut dans la vue échappe aux tests,
+   * ce qui s'est déjà vérifié.
+   */
+  function choixQuete(valeur) {
+    if (String(valeur).indexOf('m:') !== 0) {
+      return { mesure: valeur, mesureId: null, agregat: null };
+    }
+    var p = String(valeur).split(':');
+    return { mesure: 'mesure', mesureId: p[1] || null, agregat: p[2] === 'moyenne' ? 'moyenne' : 'total' };
+  }
+
   // Intitulé lisible de ce qu'une quête mesure, grandeurs suivies comprises.
   function libelleMesure(q) {
     if (q.mesure !== 'mesure') return mesure(q.mesure).nom;
@@ -484,6 +500,7 @@ var Jeu = (function () {
     valeurJour: valeurJour, totalPeriode: totalPeriode, moyenneJour: moyenneJour,
     joursActifs: joursActifs, meilleurJour: meilleurJour, serieMesure: serieMesure,
     joursEntre: joursEntre, fmtMesure: fmtMesure, libelleMesure: libelleMesure,
+    choixQuete: choixQuete,
     noter: noter, retirerReleve: retirerReleve, reconcilier: reconcilier,
 
     enCours: enCours, bornes: bornes, valeur: valeur, progres: progres,
